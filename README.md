@@ -1,5 +1,9 @@
 # dungeondraft-mcp
 
+English · [简体中文](README.zh-CN.md)
+
+This project extends [Brandon Florian's dungeondraft-mcp](https://github.com/brann-dev/dungeondraft-mcp). Its MIT license and original copyright notice remain in [LICENSE](LICENSE).
+
 An MCP server that lets an LLM (Claude Code, Claude Desktop, etc.) drive a
 **running Dungeondraft instance** — place objects, draw walls, inspect the map —
 through Dungeondraft's GDScript modding API.
@@ -25,9 +29,73 @@ The mod opens a TCP server inside Dungeondraft and polls it every frame from the
 forwards calls as JSON. See [PROTOCOL.md](PROTOCOL.md) for the wire format.
 
 > **Status: working.** Confirmed end-to-end against Dungeondraft on **Godot
-> 3.4.2** — raw TCP from the modding sandbox works, no fallback needed. 39 tools
+> 3.4.2** — raw TCP from the modding sandbox works. Version 0.2 exposes 71 tools
 > across query / create / modify / terrain / levels / selection / capture /
 > camera / undo (see below).
+
+## Version 0.2 additions
+
+The existing drawing tools remain available. New high-level tools cover:
+
+- Local PNG embedding (`import_image`), including transparent generated art. The
+  saved map carries the pixels and does not require the original file. Whole-map
+  art remains one movable prop; it is not automatically segmented into walls.
+- Full native map serialization (`save_map`) and opening existing maps (`open_map`).
+  Saves include all floors, terrain, water, materials, lights, embedded textures,
+  native header/editor state and the original map's mod metadata. Existing output
+  files receive `.mcp-backup`. Save paths must be absolute.
+- 4/8 terrain slots, smooth blending, visibility, and expanded-slot undo/redo.
+- Polygon water/material drawing, ambient lighting, light editing, draw layers,
+  object mirroring and light occlusion, text/wall edits and reference images.
+  Water color/blend settings affect subsequent brush strokes; existing polygons
+  keep their own colors. Shoreline visibility applies to the whole floor.
+- Floor renaming, duplication, ordering and comparison overlays.
+- Visual cliff/plateau drawing and repeatable random object scattering.
+- PNG/JPEG/WEBP/Universal VTT export to named files with completion checks.
+  `export_to_file(grid=False)` explicitly hides the grid before rendering;
+  `grid=True` includes it. This also changes the editor's grid visibility.
+  On Dungeondraft 1.2.0.1, the native Universal VTT worker sometimes writes
+  only a temporary PNG. The MCP server builds a valid UVTT 0.3 file from a
+  native map snapshot and rendered PNG instead. It includes wall sight lines,
+  wall and freestanding portals, environment and lights. Cave boundaries and
+  object silhouettes are not included in this fallback's VTT sight lines.
+
+`native_targets`, `native_describe`, `native_get`, `native_set` and `native_call`
+provide access to the **installed version's public API**. Inspect method signatures
+before calling. Godot vectors/colors/arrays/textures have explicit tagged values;
+objects return reusable `$target` handles. Native access has no automatic undo.
+Some C# collections are not exposed to GDScript; use Save*/Load* methods or controls
+instead of assuming an advertised field is readable.
+
+`ui_tree` and `ui_action` expose Dungeondraft's own controls for functions without
+a dedicated drawing wrapper. Inspect controls before selecting an option, changing
+a slider or pressing a button. Tool targets return their public control getters;
+tools without such getters fall back to the Editor tree. Pressed button signals
+are deferred so normal native handlers can run outside the mod update callback.
+Native file dialogs may still require desktop interaction. This is an access path
+to the application, not a claim that every button and version has been tested.
+
+Elevation has three supported meanings: separate floors, draw order, and visual
+cliffs/raised ground. Dungeondraft does not provide a 3D terrain heightmap here.
+
+Lighting uses Dungeondraft's 2D falloff textures and wall occlusion. It supports
+plausible local light and shadows, but is not a 3D ray tracer or a strict
+inverse-square physical renderer.
+
+Restart/reconnect the MCP server after updating Python code to refresh its tool
+list, and reload the mod in Dungeondraft. Handles expire on mod/map reload. The
+bridge shares its socket through the scene root and transfers ownership to the
+new mod instance, avoiding a stranded listener after opening another map.
+
+Verified on Dungeondraft 1.2.0.1: MCP stdio discovery (71 tools), transparent PNG
+embedding including temporary-source cleanup, terrain slots 5/undo/redo, ambient
+and individual lights, water, materials, floor/layer management, native sliders
+and a deferred Cancel button, cliffs/scatter, walls/doors/roofs/caves/text,
+three-floor save/reopen and PNG export. Reopened drawing data matches after
+ignoring regenerated water reference identifiers and empty material-layer lists.
+Native API/UI access does not mean every possible operation has been tested.
+
+Offline regression checks: `python -m unittest discover -s tests -v`.
 
 ## What the AI can do
 
@@ -77,7 +145,7 @@ Claude Desktop). On Windows, `python`/`.venv\Scripts\` replace the `python3`/
 On load you should see in the Dungeondraft log:
 
 ```
-[mcp-bridge] listening on 127.0.0.1:8787 (protocol v6)
+[mcp-bridge] ready, protocol 17
 ```
 
 ### 2. Install the MCP server
@@ -156,8 +224,8 @@ Adding a capability is symmetric — one handler on each side:
 2. **Server** (`server/dungeondraft_mcp/server.py`): add an `@mcp.tool()` that
    calls `bridge.request("my_command", ...)`.
 
-Good next targets: pattern shapes (floors), region-scoped terrain fill, and
-grouping a batch of edits into a single undo step.
+For bulk edits, save a map copy first. `batch_commands` executes sequentially
+and reports partial completion; it does not provide atomic rollback.
 
 ### Dev loop (read this before iterating on the mod)
 

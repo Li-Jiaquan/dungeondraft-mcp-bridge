@@ -721,6 +721,10 @@ def redo() -> dict:
     return bridge.request("redo")
 
 
+from .extended import register as register_extended
+register_extended(mcp, bridge)
+
+
 def main() -> None:
     mcp.run()
 

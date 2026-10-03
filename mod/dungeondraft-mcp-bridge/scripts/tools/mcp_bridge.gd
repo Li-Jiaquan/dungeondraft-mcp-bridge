@@ -21,11 +21,11 @@ var script_class = "tool"
 
 const HOST := "127.0.0.1"
 const PORT := 8787
-const PROTOCOL_VERSION := 16
+const PROTOCOL_VERSION := 17
 
 # Commands that get wrapped in a Dungeondraft undo record (see _record_and_dispatch).
 const CREATE_CMDS := [
-	"place_object", "draw_wall", "draw_path", "add_light",
+	"import_image", "place_object", "draw_wall", "draw_path", "add_light",
 	"add_portal", "add_roof", "add_text", "duplicate_object",
 ]
 const TRANSFORM_CMDS := ["move_element", "modify_object"]
@@ -49,6 +49,7 @@ const COLLECTIONS := {
 }
 
 var _server : TCP_Server = null
+var _bridge_owner := 0
 var _conns := []         # array of { "peer": StreamPeerTCP, "buf": String }
 var _undo_stack := []    # bridge-managed undo ops (see _build_op / _apply_op)
 var _redo_stack := []
@@ -60,17 +61,25 @@ var _redo_stack := []
 
 func start():
 	_register_tool()
+	var root = Global.World.get_tree().get_root()
+	_bridge_owner = OS.get_ticks_usec()
+	root.set_meta("dd_mcp_owner",_bridge_owner)
+	if root.has_meta("dd_mcp_server"):
+		_server = root.get_meta("dd_mcp_server")
+		if _server != null and _server.is_listening(): return
 	_server = TCP_Server.new()
-	var err = _server.listen(PORT, HOST)
-	if err == OK:
-		print("[mcp-bridge] listening on %s:%d (protocol v%d)" % [HOST, PORT, PROTOCOL_VERSION])
-	else:
+	var error = _server.listen(PORT,HOST)
+	if error != OK:
 		_server = null
-		print("[mcp-bridge] FAILED to listen on %s:%d (error %d)" % [HOST, PORT, err])
-		OS.alert("MCP bridge could not open port %d (error %d).\nIs it already in use?" % [PORT, err], "MCP Bridge")
+		print("[mcp-bridge] listen failed: ",error)
+		return
+	root.set_meta("dd_mcp_server",_server)
+	print("[mcp-bridge] ready, protocol ",PROTOCOL_VERSION)
 
 
 func update(delta : float):
+	var root = Global.World.get_tree().get_root()
+	if root.get_meta("dd_mcp_owner") != _bridge_owner: return
 	if _server == null:
 		return
 
@@ -133,7 +142,7 @@ func _record_and_dispatch(req : Dictionary) -> Dictionary:
 	if cmd in TERRAIN_CMDS:
 		var lvl = Global.World.GetCurrentLevel()
 		if lvl != null:
-			terrain_before = lvl.Terrain.CloneSplatImage()
+			terrain_before = _terrain_snapshot(lvl)
 
 	var cave_before = null
 	if cmd in CAVE_CMDS:
@@ -146,6 +155,14 @@ func _record_and_dispatch(req : Dictionary) -> Dictionary:
 			_undo_stack.append(op)
 			_redo_stack = []   # a fresh edit invalidates the redo branch
 	return result
+
+
+func _mark_native_modified():
+	if not Global.Editor.History.has_method("CreateCustomRecord"):
+		return
+	var marker = Script.InstanceReference("library/mcp_history_marker.gd")
+	if marker != null:
+		Global.Editor.History.CreateCustomRecord(marker)
 
 
 # Returns an undo op for a recordable command, or null. Ops are reversed by
@@ -164,7 +181,7 @@ func _build_op(cmd, req, result, pre, terrain_before, cave_before = null):
 	elif cmd in TERRAIN_CMDS and terrain_before != null:
 		var lvl = Global.World.GetCurrentLevel()
 		if lvl != null:
-			return { "kind": "terrain", "before": terrain_before, "after": lvl.Terrain.CloneSplatImage() }
+			return { "kind": "terrain", "before": terrain_before, "after": _terrain_snapshot(lvl), "level_id": lvl.ID }
 	elif cmd in CAVE_CMDS and cave_before != null:
 		var after = _cave_snapshot()
 		if after != null:
@@ -200,7 +217,7 @@ func _apply_op(op, undo : bool):
 		"transform":
 			_apply_props(Global.World.GetNodeByID(int(op["id"])), op["old"] if undo else op["new"])
 		"terrain":
-			_restore_splat(op["before"] if undo else op["after"])
+			_restore_terrain(op["before"] if undo else op["after"], op.get("level_id", -1))
 		"cave":
 			_restore_cave(op["before"] if undo else op["after"])
 
@@ -291,6 +308,35 @@ func _snapshot(node) -> Dictionary:
 func _safe_dispatch(req : Dictionary) -> Dictionary:
 	var cmd = req.get("cmd", "")
 	match cmd:
+		"native_describe": return _native_describe(req)
+		"native_get": return _native_get(req)
+		"native_call": return _native_call(req)
+		"native_set": return _native_set(req)
+		"ui_tree": return _ui_tree(req)
+		"ui_action": return _ui_action(req)
+		"native_targets": return _native_targets()
+		"import_image": return _import_image(req)
+		"configure_terrain": return _configure_terrain(req)
+		"configure_environment": return _configure_environment(req)
+		"modify_light": return _modify_light(req)
+		"set_layer": return _set_layer(req)
+		"set_element_layer": return _set_element_layer(req)
+		"draw_water": return _draw_water(req)
+		"configure_water": return _configure_water(req)
+		"draw_material": return _draw_material(req)
+		"configure_object": return _configure_object(req)
+		"modify_text": return _modify_text(req)
+		"modify_wall": return _modify_wall(req)
+		"set_trace_image": return _set_trace_image(req)
+		"rename_level": return _rename_level(req)
+		"clone_level": return _clone_level(req)
+		"reorder_levels": return _reorder_levels(req)
+		"compare_levels": return _compare_levels(req)
+		"save_document": return _save_document(req)
+		"open_document": return _open_document(req)
+		"export_document": return _export_document(req)
+		"list_layers": return _list_layers()
+		"capabilities": return _capabilities()
 		# --- read / query ---
 		"ping": return _ok({ "pong": true, "protocol": PROTOCOL_VERSION, "engine": Engine.get_version_info() })
 		"get_status": return _get_status()
@@ -321,6 +367,7 @@ func _safe_dispatch(req : Dictionary) -> Dictionary:
 		"move_element": return _move_element(req)
 		"modify_object": return _modify_object(req)
 		"duplicate_object": return _duplicate_object(req)
+		"finalize_object": return _finalize_object(req)
 		"delete_element": return _delete_element(req)
 		# --- levels ---
 		"add_level": return _add_level(req)
@@ -328,6 +375,8 @@ func _safe_dispatch(req : Dictionary) -> Dictionary:
 		# --- capture ---
 		"screenshot": return _screenshot(req)
 		"export_map": return _export_map(req)
+		"save_map": return _save_document(req)
+		"probe_save": return _probe_save(req)
 		# --- camera ---
 		"get_camera": return _get_camera()
 		"set_camera": return _set_camera(req)
@@ -362,7 +411,7 @@ func _get_status() -> Dictionary:
 		counts[kind] = _collection(level, kind).get_child_count()
 	return _ok({
 		"map_open": true,
-		"level_id": Global.World.CurrentLevelId,
+		"level_id": level.ID, "level_index": Global.World.CurrentLevelId,
 		"level_count": Global.World.levels.size(),
 		"map_size_woxels": [Global.World.WoxelDimensions.x, Global.World.WoxelDimensions.y],
 		"map_center": [Global.World.WoxelDimensions.x * 0.5, Global.World.WoxelDimensions.y * 0.5],
@@ -617,7 +666,7 @@ func _list_levels() -> Dictionary:
 	for i in range(levels.size()):
 		var lv = levels[i]
 		out.append({ "index": i, "id": lv.ID, "label": lv.Label })
-	return _ok({ "current_index": Global.World.CurrentLevelId, "levels": out })
+	return _ok({ "current_index": Global.World.CurrentLevelId, "current_id": Global.World.GetCurrentLevel().ID, "levels": out })
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +686,25 @@ func _place_object(req : Dictionary) -> Dictionary:
 	prop.rotation = deg2rad(float(req.get("rotation", 0.0)))
 	if req.has("color") and prop.has_method("SetCustomColor"):
 		prop.SetCustomColor(_color(req["color"], Color(1, 1, 1)))
+	# ObjectTool.Record() is the native path used by the editor after placing a
+	# prop. It assigns a real node id, registers the object for selection, and
+	# makes it part of Dungeondraft's serializable edit history. CreateObject()
+	# alone only makes a temporary live node, which can disappear on save/reload.
+	if Global.Editor.Tools.has("ObjectTool"):
+		Global.Editor.Tools["ObjectTool"].Record(prop)
+	elif level.Objects.has_method("AddToSearchTable"):
+		level.Objects.AddToSearchTable(prop, int(req.get("sorting", 0)) == 1)
 	return _ok({ "id": _id(prop), "position": _vec(prop.position) })
+
+
+func _finalize_object(req : Dictionary) -> Dictionary:
+	var node = _resolve(req)
+	if node == null:
+		return _err("no object with id " + str(req.get("id")))
+	if not Global.Editor.Tools.has("ObjectTool"):
+		return _err("ObjectTool is unavailable")
+	Global.Editor.Tools["ObjectTool"].Record(node)
+	return _ok({ "id": _id(node), "finalized": true })
 
 
 func _draw_wall(req : Dictionary) -> Dictionary:
@@ -680,6 +747,7 @@ func _draw_path(req : Dictionary) -> Dictionary:
 		tex, int(req.get("layer", 0)), int(req.get("sorting", 0)),
 		bool(req.get("fade_in", false)), bool(req.get("fade_out", false)),
 		bool(req.get("grow", false)), bool(req.get("shrink", false)))
+	path.set_meta("preview", false)
 	path.SetEditPoints(pts)
 	if req.has("smoothness"):
 		path.Smoothness = float(req["smoothness"])
@@ -694,12 +762,15 @@ func _add_light(req : Dictionary) -> Dictionary:
 	var level = Global.World.GetCurrentLevel()
 	if level == null: return _err("no map open")
 	var light = level.Lights.CreateLight(false)
+	light.set_meta("preview", false)
 	light.position = _xy(req, Global.World.WoxelDimensions * 0.5)
 	light.color = _color(req.get("color", ""), Color(1, 0.9, 0.7))
 	light.energy = float(req.get("energy", 1.0))
 	light.texture_scale = float(req.get("range", 1.0))
 	light.shadow_enabled = bool(req.get("shadows", true))
-	var tex = _asset_tex("Lights", req.get("asset", ""))
+	var light_asset = str(req.get("asset", ""))
+	if light_asset == "": light_asset = "res://textures/lights/soft.png"
+	var tex = _asset_tex("Lights", light_asset)
 	if tex != null:
 		light.texture = tex
 	return _ok({ "id": _id(light), "position": _vec(light.position) })
@@ -1014,6 +1085,102 @@ func _add_text(req : Dictionary) -> Dictionary:
 	return _ok({ "id": _id(text), "size": text.fontSize, "color": "#" + text.fontColor.to_html(false) })
 
 
+# Dungeondraft 1.2 can leave its UI save worker busy on very large maps. Keep
+# the valid map file as a skeleton and replace only the live editable sections
+# exposed by the public API. This avoids the unsafe Level.Save()/World.Save()
+# path while retaining the native .dungeondraft_map structure.
+func _save_map(req : Dictionary) -> Dictionary:
+	var path = str(req.get("path", ""))
+	if path == "":
+		path = str(Global.Editor.CurrentMapFile)
+	if path == "":
+		return _err("no output path and no current map file")
+	var level = Global.World.GetCurrentLevel()
+	if level == null:
+		return _err("no current level exists")
+	var source = File.new()
+	var source_err = source.open(path, File.READ)
+	if source_err != OK:
+		return _err("the current map skeleton could not be read")
+	var parsed = JSON.parse(source.get_as_text())
+	source.close()
+	if parsed.error != OK or typeof(parsed.result) != TYPE_DICTIONARY:
+		return _err("the current map skeleton is invalid")
+	var payload = parsed.result
+	var world = payload.get("world", null)
+	if typeof(world) != TYPE_DICTIONARY:
+		return _err("the current map skeleton has no world section")
+	var levels = world.get("levels", null)
+	if typeof(levels) != TYPE_DICTIONARY:
+		return _err("the current map skeleton has no levels section")
+	var level_key = str(Global.World.CurrentLevelId)
+	if not levels.has(level_key):
+		return _err("the current map skeleton has no level %s" % level_key)
+	var saved_level = levels[level_key]
+	if typeof(saved_level) != TYPE_DICTIONARY:
+		return _err("the current level section is invalid")
+	var section = str(req.get("section", "all"))
+	if section == "all" or section == "environment": saved_level["environment"] = level.SaveEnvironment()
+	if section == "all" or section == "layers": saved_level["layers"] = level.SaveLayers()
+	if section == "all" or section == "shapes": saved_level["shapes"] = level.FloorShapes.Save()
+	if section == "all" or section == "patterns": saved_level["patterns"] = level.PatternShapes.Save()
+	if section == "all" or section == "walls": saved_level["walls"] = level.Walls.Save()
+	if section == "all" or section == "terrain": saved_level["terrain"] = level.Terrain.Save()
+	if section == "all" or section == "materials": saved_level["materials"] = level.SaveMaterialMeshes()
+	if section == "all" or section == "paths": saved_level["paths"] = level.Pathways.Save()
+	if section == "all" or section == "objects": saved_level["objects"] = level.Objects.Save()
+	if section == "all" or section == "lights": saved_level["lights"] = level.Lights.Save()
+	if section == "all" or section == "roofs": saved_level["roofs"] = level.Roofs.Save()
+	if section == "all" or section == "texts": saved_level["texts"] = level.Texts.Save()
+	saved_level["label"] = level.Label
+	levels[level_key] = saved_level
+	world["levels"] = levels
+	world["next_node_id"] = str(Global.World.nextNodeID)
+	world["next_prefab_id"] = str(Global.World.nextPrefabID)
+	payload["world"] = world
+	var text = JSON.print(payload)
+	var file = File.new()
+	var err = file.open(path, File.WRITE)
+	if err != OK:
+		return _err("could not open output map (error %d): %s" % [err, path])
+	file.store_string(text)
+	file.close()
+	return _ok({ "saved": true, "path": path, "bytes": text.to_utf8().size() })
+
+
+func _probe_save(req : Dictionary) -> Dictionary:
+	var level = Global.World.GetCurrentLevel()
+	if level == null:
+		return _err("no current level exists")
+	var part = str(req.get("part", "objects"))
+	var data = null
+	match part:
+		"objects": data = level.Objects.Save()
+		"walls": data = level.Walls.Save()
+		"paths": data = level.Pathways.Save()
+		"lights": data = level.Lights.Save()
+		"roofs": data = level.Roofs.Save()
+		"texts": data = level.Texts.Save()
+		"patterns": data = level.PatternShapes.Save()
+		"shapes": data = level.FloorShapes.Save()
+		"terrain": data = level.Terrain.Save()
+		"materials": data = level.SaveMaterialMeshes()
+		"environment": data = level.SaveEnvironment()
+		"layers": data = level.SaveLayers()
+		_: return _err("unknown save part: " + part)
+	if data == null:
+		return _err("save part returned null: " + part)
+	var text = JSON.print(data)
+	var path = str(req.get("path", "user://mcp_probe_" + part + ".json"))
+	var file = File.new()
+	var err = file.open(path, File.WRITE)
+	if err != OK:
+		return _err("could not open probe output (error %d)" % err)
+	file.store_string(text)
+	file.close()
+	return _ok({ "part": part, "type": typeof(data), "bytes": text.to_utf8().size(), "path": path })
+
+
 # ---------------------------------------------------------------------------
 # Terrain
 # ---------------------------------------------------------------------------
@@ -1024,6 +1191,7 @@ func _set_terrain_slot(req : Dictionary) -> Dictionary:
 	var tex = _asset_tex("Terrain", req.get("asset", ""))
 	if tex == null: return _err("could not load terrain asset: " + str(req.get("asset")))
 	var slot = int(req.get("slot", 0))
+	if slot < 0 or slot >= (8 if level.Terrain.ExpandedSlots else 4): return _err("terrain slot is unavailable; enable expanded slots for 4-7")
 	level.Terrain.SetTexture(tex, slot)
 	level.Terrain.UpdateSplat()
 	return _ok({ "slot": slot })
@@ -1033,6 +1201,7 @@ func _fill_terrain(req : Dictionary) -> Dictionary:
 	var level = Global.World.GetCurrentLevel()
 	if level == null: return _err("no map open")
 	var slot = int(req.get("slot", 0))
+	if slot < 0 or slot >= (8 if level.Terrain.ExpandedSlots else 4): return _err("terrain slot is unavailable; enable expanded slots for 4-7")
 	if req.has("asset"):
 		var tex = _asset_tex("Terrain", req["asset"])
 		if tex == null: return _err("could not load terrain asset: " + str(req["asset"]))
@@ -1050,6 +1219,7 @@ func _paint_terrain(req : Dictionary) -> Dictionary:
 	var level = Global.World.GetCurrentLevel()
 	if level == null: return _err("no map open")
 	var slot = int(req.get("slot", 0))
+	if slot < 0 or slot >= (8 if level.Terrain.ExpandedSlots else 4): return _err("terrain slot is unavailable; enable expanded slots for 4-7")
 	var radius = float(req.get("radius", 64.0))
 	var rate = clamp(float(req.get("rate", 1.0)), 0.0, 1.0)
 	if req.has("asset"):
@@ -1086,10 +1256,10 @@ func _paint_terrain(req : Dictionary) -> Dictionary:
 			var w = rate * falloff
 			if w <= 0.0:
 				continue
-			img.set_pixel(ix, iy, _splat_set_channel(img.get_pixel(ix, iy), ch, w))
+			_splat_paint_pixel(sp, ix, iy, w)
 			painted += 1
 	img.unlock()
-	_close_splat(level, sp.which, img)
+	_close_splat_state(level, sp)
 	return _ok({ "painted_slot": slot, "pixels": painted })
 
 
@@ -1103,6 +1273,7 @@ func _paint_path(req : Dictionary) -> Dictionary:
 	var level = Global.World.GetCurrentLevel()
 	if level == null: return _err("no map open")
 	var slot = int(req.get("slot", 0))
+	if slot < 0 or slot >= (8 if level.Terrain.ExpandedSlots else 4): return _err("terrain slot is unavailable; enable expanded slots for 4-7")
 	var radius = float(req.get("radius", 96.0))
 	var rate = clamp(float(req.get("rate", 1.0)), 0.0, 1.0)
 	if not req.has("points"):
@@ -1160,10 +1331,10 @@ func _paint_path(req : Dictionary) -> Dictionary:
 			var w = rate * falloff
 			if w <= 0.0:
 				continue
-			img.set_pixel(ix, iy, _splat_set_channel(img.get_pixel(ix, iy), ch, w))
+			_splat_paint_pixel(sp, ix, iy, w)
 			painted += 1
 	img.unlock()
-	_close_splat(level, sp.which, img)
+	_close_splat_state(level, sp)
 	return _ok({ "painted_slot": slot, "segments": tpts.size() - 1, "pixels": painted })
 
 
@@ -1186,6 +1357,7 @@ func _fill_region(req : Dictionary) -> Dictionary:
 	var level = Global.World.GetCurrentLevel()
 	if level == null: return _err("no map open")
 	var slot = int(req.get("slot", 0))
+	if slot < 0 or slot >= (8 if level.Terrain.ExpandedSlots else 4): return _err("terrain slot is unavailable; enable expanded slots for 4-7")
 	var rate = float(req.get("rate", 1.0))
 	if req.has("asset"):
 		var tex = _asset_tex("Terrain", req["asset"])
@@ -1247,10 +1419,10 @@ func _fill_region(req : Dictionary) -> Dictionary:
 				continue
 			if not _point_in_poly(Vector2(px + 0.5, py + 0.5), local):
 				continue
-			img.set_pixel(ix, iy, _splat_set_channel(img.get_pixel(ix, iy), sp.ch, rate))
+			_splat_paint_pixel(sp, ix, iy, rate)
 			painted += 1
 	img.unlock()
-	_close_splat(level, sp.which, img)
+	_close_splat_state(level, sp)
 
 	return _ok({
 		"filled_slot": slot, "shape": ("rect" if req.has("rect") else "polygon"),
@@ -1266,16 +1438,47 @@ func _fill_region(req : Dictionary) -> Dictionary:
 func _open_splat(level, slot : int):
 	var which = 0 if slot < 4 else 1
 	var img = level.Terrain.CloneSplatImage() if which == 0 else level.Terrain.CloneSplatImage2()
-	if img == null:
-		return null
-	return { "img": img, "ch": slot % 4, "which": which }
+	if img == null: return null
+	var other = null
+	if level.Terrain.ExpandedSlots:
+		other = level.Terrain.CloneSplatImage2() if which == 0 else level.Terrain.CloneSplatImage()
+		if other != null: other.lock()
+	return {"img":img,"other":other,"ch":slot % 4,"which":which}
+
+func _splat_paint_pixel(sp, x : int, y : int, rate : float):
+	if sp.other == null:
+		sp.img.set_pixel(x,y,_splat_set_channel(sp.img.get_pixel(x,y),sp.ch,rate))
+		return
+	var c = sp.img.get_pixel(x,y)
+	var d = sp.other.get_pixel(x,y)
+	var weights = [c.r,c.g,c.b,c.a,d.r,d.g,d.b,d.a]
+	var total = 0.0
+	for weight in weights: total += weight
+	if total > 0.0001:
+		for i in range(8): weights[i] /= total
+	var target = weights[sp.ch] + (1.0-weights[sp.ch])*rate
+	var remaining = 1.0-weights[sp.ch]
+	for i in range(8):
+		if i == sp.ch: weights[i] = target
+		else: weights[i] = weights[i]*(1.0-target)/remaining if remaining > 0.0001 else 0.0
+	sp.img.set_pixel(x,y,Color(weights[0],weights[1],weights[2],weights[3]))
+	sp.other.set_pixel(x,y,Color(weights[4],weights[5],weights[6],weights[7]))
+
+func _close_splat_state(level, sp):
+	if sp.other == null:
+		_close_splat(level,sp.which,sp.img)
+		return
+	sp.other.unlock()
+	if sp.which == 0: level.Terrain.RestoreSplat2(sp.img,sp.other)
+	else: level.Terrain.RestoreSplat2(sp.other,sp.img)
+	level.Terrain.UpdateSplat()
 
 
 func _close_splat(level, which : int, img) -> void:
 	if which == 0:
 		level.Terrain.RestoreSplat(img)
 	else:
-		level.Terrain.RestoreSplat2(img)
+		level.Terrain.RestoreSplat2(level.Terrain.CloneSplatImage(), img)
 	level.Terrain.UpdateSplat()
 
 
@@ -1351,6 +1554,10 @@ func _duplicate_object(req : Dictionary) -> Dictionary:
 	prop.position = src.position + Vector2(float(req.get("dx", 64.0)), float(req.get("dy", 0.0)))
 	prop.scale = src.scale
 	prop.rotation = src.rotation
+	if Global.Editor.Tools.has("ObjectTool"):
+		Global.Editor.Tools["ObjectTool"].Record(prop)
+	elif level.Objects.has_method("AddToSearchTable"):
+		level.Objects.AddToSearchTable(prop, false)
 	return _ok({ "id": _id(prop), "position": _vec(prop.position) })
 
 
@@ -1366,15 +1573,22 @@ func _delete_element(req : Dictionary) -> Dictionary:
 # ---------------------------------------------------------------------------
 
 func _add_level(req : Dictionary) -> Dictionary:
+	var template = Global.World.GetCurrentLevel().Terrain.Save()
+	template["enabled"] = true
 	var lv = Global.World.CreateLevel(str(req.get("label", "Level")))
-	return _ok({ "id": lv.ID, "label": lv.Label })
+	lv.Terrain.Load(template)
+	lv.Terrain.Fill(0)
+	lv.Terrain.UpdateSplat()
+	Global.Editor.UpdateLevelOptions()
+	return _ok({ "id": lv.ID, "label": lv.Label, "terrain_initialized": true })
 
 
 func _set_level(req : Dictionary) -> Dictionary:
 	var idx = int(req.get("index", 0))
 	if idx < 0 or idx >= Global.World.levels.size():
 		return _err("level index out of range: " + str(idx))
-	Global.World.SetLevel(idx)
+	Global.World.SetLevel(idx, false)
+	if Global.World.CurrentLevelId != idx: return _err("native floor switch failed")
 	return _ok({ "current_index": idx })
 
 
@@ -1734,3 +1948,658 @@ func _ensure_icon() -> String:
 		img.fill(Color(0.18, 0.55, 0.95))
 		img.save_png(path)
 	return path
+
+# Runtime access to Dungeondraft's installed API. No eval, executable launch,
+# or arbitrary scene-tree roots. Version-specific methods are discovered first.
+var _native_handles := {}
+var _native_handle_next := 1
+
+func _native_read(obj, name):
+	if obj == null or not is_instance_valid(obj): return null
+	if obj.has_method("get_" + name): return obj.call("get_" + name)
+	return obj.get(name)
+
+func _native_public(name : String) -> bool:
+	return name.substr(0,1) == name.substr(0,1).to_upper() or name in ["set_shader_param", "get_shader_param"] or ((name.begins_with("get_") or name.begins_with("set_")) and name.length()>4 and name.substr(4,1) == name.substr(4,1).to_upper())
+
+func _native_target(path : String):
+	var parts = path.split(".")
+	var root = parts[0]
+	var obj = null
+	if root == "World": obj = Global.World
+	elif root == "Header": obj = Global.Header
+	elif root == "Editor": obj = Global.Editor
+	elif root == "Exporter": obj = Global.Exporter
+	elif root == "Camera": obj = Global.Camera
+	elif root == "Level": obj = Global.World.GetCurrentLevel()
+	elif root.begins_with("Tool:"): obj = Global.Editor.Tools.get(root.substr(5), null)
+	elif root.begins_with("Window:"): obj = Global.Editor.Windows.get(root.substr(7), null)
+	elif root.begins_with("Element:") and root.substr(8).is_valid_integer(): obj = Global.World.GetNodeByID(int(root.substr(8)))
+	elif root.begins_with("Level:") and root.substr(6).is_valid_integer(): obj = Global.World.GetLevelByID(int(root.substr(6)))
+	elif root.begins_with("Handle:"): obj = _native_handles.get(root.substr(7), null)
+	for i in range(1, parts.size()):
+		if obj == null or str(parts[i]).begins_with("_"): return null
+		if parts[i] in ["owner", "multiplayer", "custom_multiplayer", "script"] or str(parts[i]).find("<") != -1: return null
+		if typeof(obj) == TYPE_DICTIONARY: obj = obj.get(parts[i], null)
+		elif typeof(obj) == TYPE_ARRAY:
+			if not str(parts[i]).is_valid_integer(): return null
+			var index = int(parts[i])
+			if index < 0 or index >= obj.size(): return null
+			obj = obj[index]
+		elif typeof(obj) == TYPE_OBJECT and is_instance_valid(obj): obj = _native_read(obj, parts[i])
+		else: return null
+	if typeof(obj) == TYPE_OBJECT and not is_instance_valid(obj): return null
+	return obj
+
+func _native_pack(value, depth = 0):
+	if depth > 8: return { "truncated": true }
+	match typeof(value):
+		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_REAL, TYPE_STRING: return value
+		TYPE_VECTOR2: return { "$type": "Vector2", "value": [value.x, value.y] }
+		TYPE_VECTOR3: return { "$type": "Vector3", "value": [value.x, value.y, value.z] }
+		TYPE_COLOR: return { "$type": "Color", "value": [value.r, value.g, value.b, value.a], "hex": "#" + value.to_html() }
+		TYPE_RECT2: return { "$type": "Rect2", "value": [value.position.x, value.position.y, value.size.x, value.size.y] }
+		TYPE_DICTIONARY:
+			var out := {}
+			for key in value: out[str(key)] = _native_pack(value[key], depth + 1)
+			return out
+		TYPE_ARRAY, TYPE_VECTOR2_ARRAY, TYPE_STRING_ARRAY, TYPE_INT_ARRAY, TYPE_REAL_ARRAY, TYPE_COLOR_ARRAY:
+			var out := []
+			for item in value:
+				if out.size() >= 1000: break
+				out.append(_native_pack(item, depth + 1))
+			return out
+		TYPE_RAW_ARRAY: return { "$type": "bytes", "size": value.size() }
+		TYPE_OBJECT:
+			if not is_instance_valid(value): return null
+			var key = str(value.get_instance_id())
+			_native_handles[key] = value
+			var out = { "$target": "Handle:" + key, "class": value.get_class() }
+			if value is Resource: out["resource_path"] = value.resource_path
+			return out
+	return str(value)
+
+func _native_decode(value):
+	if typeof(value) == TYPE_DICTIONARY:
+		if value.has("$target"):
+			var obj = _native_target(str(value["$target"]))
+			if obj == null: return _err("invalid target reference: " + str(value["$target"]))
+			return _ok(obj)
+		if value.has("$type"):
+			var kind = str(value["$type"])
+			var v = value.get("value", null)
+			if kind in ["Vector2", "Vector3", "Rect2", "Color"]:
+				if kind == "Color" and typeof(v) == TYPE_STRING and v.begins_with("#") and v.length() in [7, 9]: return _ok(Color(v))
+				if typeof(v) != TYPE_ARRAY: return _err(kind + " requires a numeric value array")
+				var count = 2 if kind == "Vector2" else 3 if kind == "Vector3" else 4
+				if v.size() != count: return _err(kind + " requires %d numbers" % count)
+				for n in v:
+					if not typeof(n) in [TYPE_INT, TYPE_REAL]: return _err(kind + " requires numeric components")
+				if kind == "Vector2": return _ok(Vector2(v[0], v[1]))
+				if kind == "Vector3": return _ok(Vector3(v[0], v[1], v[2]))
+				if kind == "Rect2": return _ok(Rect2(v[0], v[1], v[2], v[3]))
+				return _ok(Color(v[0], v[1], v[2], v[3]))
+			if kind == "Vector2Array":
+				if typeof(v) != TYPE_ARRAY: return _err("Vector2Array requires an array")
+				var points = PoolVector2Array()
+				for p in v:
+					if typeof(p) != TYPE_ARRAY or p.size() != 2: return _err("invalid Vector2Array point")
+					if not typeof(p[0]) in [TYPE_INT, TYPE_REAL] or not typeof(p[1]) in [TYPE_INT, TYPE_REAL]: return _err("non-numeric point")
+					points.append(Vector2(p[0], p[1]))
+				return _ok(points)
+			if kind == "StringArray":
+				if typeof(v) != TYPE_ARRAY: return _err("StringArray requires an array")
+				for s in v:
+					if typeof(s) != TYPE_STRING: return _err("StringArray requires strings")
+				return _ok(PoolStringArray(v))
+			if kind == "Texture":
+				var tex = _asset_tex(str(value.get("category", "Objects")), value.get("asset", ""))
+				if tex == null: return _err("texture is not in the loaded asset bank")
+				return _ok(tex)
+			if kind == "Image":
+				var path = str(value.get("path", ""))
+				if path == "" or not File.new().file_exists(path): return _err("image file does not exist")
+				var img = Image.new()
+				var code = img.load(path)
+				if code != OK: return _err("image decoding failed: %d" % code)
+				return _ok(img)
+			return _err("unsupported tagged type: " + kind)
+		var out := {}
+		for key in value:
+			var decoded = _native_decode(value[key])
+			if not decoded.ok: return decoded
+			out[key] = decoded.result
+		return _ok(out)
+	if typeof(value) == TYPE_ARRAY:
+		var out := []
+		for item in value:
+			var decoded = _native_decode(item)
+			if not decoded.ok: return decoded
+			out.append(decoded.result)
+		return _ok(out)
+	return _ok(value)
+
+func _native_targets() -> Dictionary:
+	var targets := ["World", "Header", "Editor", "Exporter", "Camera", "Level"]
+	for key in Global.Editor.Tools: targets.append("Tool:" + str(key))
+	for key in Global.Editor.Windows: targets.append("Window:" + str(key))
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl != null:
+		for prop in lvl.get_property_list():
+			if int(prop.get("type", 0)) == TYPE_OBJECT and not str(prop.name).begins_with("_") and not prop.name in ["owner", "multiplayer", "custom_multiplayer", "script"] and str(prop.name).find("<") == -1: targets.append("Level." + str(prop.name))
+	return _ok({ "targets": targets, "protocol": PROTOCOL_VERSION, "engine": Engine.get_version_info() })
+
+func _native_describe(req : Dictionary) -> Dictionary:
+	var target = str(req.get("target", "Level"))
+	var obj = _native_target(target)
+	if obj == null or typeof(obj) != TYPE_OBJECT: return _err("target is not an available object: " + target)
+	var search = str(req.get("search", "")).to_lower()
+	var methods := []
+	var properties := []
+	for info in obj.get_method_list():
+		var name = str(info.name)
+		if name.begins_with("_") or name.find("<") != -1 or name.begins_with(".") or (search != "" and name.to_lower().find(search) == -1): continue
+		if _native_public(name): methods.append(_native_pack(info))
+	for info in obj.get_property_list():
+		var name = str(info.name)
+		if name.begins_with("_") or name.find("<") != -1 or name in ["script", "owner", "multiplayer", "custom_multiplayer"] or int(info.get("usage", 0)) & 128 or (search != "" and name.to_lower().find(search) == -1): continue
+		properties.append(_native_pack(info))
+	return _ok({ "target": target, "class": obj.get_class(), "methods": methods, "properties": properties })
+
+func _native_get(req : Dictionary) -> Dictionary:
+	var obj = _native_target(str(req.get("target", "Level")))
+	if obj == null or typeof(obj) != TYPE_OBJECT: return _err("target is not available")
+	var names = req.get("properties", [])
+	if typeof(names) != TYPE_ARRAY: return _err("properties must be an array")
+	var out := {}
+	for name in names:
+		if typeof(name) != TYPE_STRING or str(name).begins_with("_") or str(name).find("<") != -1 or name in ["script","owner","multiplayer","custom_multiplayer"]: return _err("invalid property name")
+		var found = obj.has_method("get_" + name)
+		for info in obj.get_property_list():
+			if str(info.name) == name: found = true
+		if not found: return _err("property not advertised by this version: " + str(name))
+		out[name] = _native_pack(_native_read(obj,name))
+	return _ok(out)
+
+func _native_call(req : Dictionary) -> Dictionary:
+	var obj = _native_target(str(req.get("target", "Level")))
+	if obj == null or typeof(obj) != TYPE_OBJECT: return _err("target is not available")
+	var method = str(req.get("method", ""))
+	if method == "" or method.begins_with("_") or method.find("<") != -1 or method.begins_with("."): return _err("a public method is required")
+	if not _native_public(method): return _err("only Dungeondraft API methods are callable")
+	var info = null
+	for entry in obj.get_method_list():
+		if str(entry.name) == method: info = entry
+	if info == null: return _err("method is not advertised by this version: " + method)
+	var args = req.get("args", [])
+	if typeof(args) != TYPE_ARRAY: return _err("args must be an array")
+	var declared = info.get("args", [])
+	var defaults = info.get("default_args", [])
+	if args.size() < declared.size() - defaults.size() or args.size() > declared.size(): return _err("wrong argument count; inspect native_describe first")
+	var converted := []
+	for i in range(args.size()):
+		var decoded = _native_decode(args[i])
+		if not decoded.ok: return decoded
+		var val = decoded.result
+		var wanted = int(declared[i].get("type", 0))
+		if wanted == TYPE_INT and typeof(val) in [TYPE_INT, TYPE_REAL]:
+			if float(val) != float(int(val)): return _err("non-integer argument: " + str(i))
+			val = int(val)
+		elif wanted == TYPE_REAL and typeof(val) in [TYPE_INT, TYPE_REAL]: val = float(val)
+		elif wanted != TYPE_NIL and typeof(val) != wanted: return _err("argument %d type mismatch: expected %d, got %d" % [i, wanted, typeof(val)])
+		if wanted == TYPE_OBJECT:
+			var cls = str(declared[i].get("class_name", ""))
+			if val == null or (cls != "" and not val.is_class(cls)): return _err("object argument class mismatch: " + cls)
+		converted.append(val)
+	return _ok({ "target": req.target, "method": method, "value": _native_pack(obj.callv(method, converted)), "undoable": false })
+
+func _native_set(req : Dictionary) -> Dictionary:
+	var obj = _native_target(str(req.get("target", "Level")))
+	if obj == null or typeof(obj) != TYPE_OBJECT: return _err("target is not available")
+	var prop = str(req.get("property", ""))
+	if prop == "" or prop.begins_with("_") or prop.find("<") != -1 or prop in ["script", "owner", "filename", "multiplayer", "custom_multiplayer"]: return _err("invalid native property")
+	var info = null
+	for item in obj.get_property_list():
+		if str(item.name) == prop: info = item
+	if info == null: return _err("property not advertised by this version")
+	if obj.has_method("get_"+prop) and not obj.has_method("set_"+prop): return _err("native property is read-only; call its documented operation instead")
+	var decoded = _native_decode(req.get("value", null))
+	if not decoded.ok: return decoded
+	var val = decoded.result
+	var wanted = int(info.get("type", 0))
+	if wanted == TYPE_INT and typeof(val) in [TYPE_INT, TYPE_REAL]:
+		if float(val) != float(int(val)): return _err("an integer value is required")
+		val = int(val)
+	elif wanted == TYPE_REAL and typeof(val) in [TYPE_INT, TYPE_REAL]: val = float(val)
+	elif wanted != TYPE_NIL and typeof(val) != wanted: return _err("property type mismatch")
+	if obj.has_method("set_" + prop): obj.call("set_" + prop, val)
+	else: obj.set(prop, val)
+	var actual = _native_read(obj, prop)
+	if not _native_equal(actual, val): return _err("native property did not retain the requested value; use its documented setter")
+	return _ok({ "target": req.target, "property": prop, "value": _native_pack(actual), "undoable": false })
+
+func _native_equal(a, b) -> bool:
+	if typeof(a) in [TYPE_INT,TYPE_REAL] and typeof(b) in [TYPE_INT,TYPE_REAL]:
+		return abs(float(a)-float(b)) <= 0.000001 * max(1.0,max(abs(float(a)),abs(float(b))))
+	if typeof(a) != typeof(b): return false
+	if typeof(a) in [TYPE_VECTOR2,TYPE_VECTOR3,TYPE_COLOR,TYPE_RECT2]: return a.is_equal_approx(b)
+	if typeof(a) == TYPE_ARRAY:
+		if a.size() != b.size(): return false
+		for i in range(a.size()):
+			if not _native_equal(a[i],b[i]): return false
+		return true
+	return a == b
+
+# High-level operations that retain the normal Dungeondraft save format.
+func _terrain_snapshot(level) -> Dictionary:
+	return { "splat": level.Terrain.CloneSplatImage(), "splat2": level.Terrain.CloneSplatImage2() if level.Terrain.ExpandedSlots else null, "textures": level.Terrain.textures.duplicate(), "expanded": level.Terrain.ExpandedSlots }
+
+func _restore_terrain(state, level_id):
+	var level = Global.World.GetLevelByID(int(level_id))
+	if level == null: return
+	level.Terrain.ExpandSlots(state.expanded)
+	for slot in range(state.textures.size()):
+		if state.textures[slot] != null: level.Terrain.SetTexture(state.textures[slot], slot)
+	if state.splat2 != null: level.Terrain.RestoreSplat2(state.splat, state.splat2)
+	else: level.Terrain.RestoreSplat(state.splat)
+	level.Terrain.UpdateSplat()
+
+func _import_image(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var path = str(req.get("path", ""))
+	var input_file = File.new()
+	if not input_file.file_exists(path): return _err("image file does not exist")
+	if path.get_extension().to_lower() != "png": return _err("embedded images currently require PNG")
+	var s = float(req.get("scale", 1.0))
+	if s <= 0: return _err("invalid image scale")
+	var layer = int(req.get("layer", 100))
+	if not lvl.SaveLayers().has(layer): return _err("layer does not exist; call list_layers")
+	# EmbedObject already creates and records a REAL prop in 1.2.0.1. It is not
+	# a preview loader. Locate the newly recorded prop without finalizing a
+	# tool preview a second time.
+	var existing := {}
+	for node in lvl.Objects.get_children(): existing[node.get_instance_id()] = true
+	Global.Editor.Tools["ObjectTool"].EmbedObject(path)
+	var prop = null
+	for node in lvl.Objects.get_children():
+		if not existing.has(node.get_instance_id()): prop = node
+	if prop == null: return _err("native embedding did not create a prop")
+	prop.position = _xy(req, Global.World.WoxelDimensions * 0.5)
+	prop.scale = Vector2(s, s)
+	prop.rotation = deg2rad(float(req.get("rotation", 0.0)))
+	prop.z_index = layer
+	prop.HasShadow = bool(req.get("shadow", false))
+	var nid = _id(prop)
+	return _ok({ "id": nid, "embedded": true, "image_size": [prop.Texture.get_width(), prop.Texture.get_height()], "layer": layer, "position": _vec(prop.position), "scale": s })
+
+
+func _configure_terrain(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	if req.has("expanded"): lvl.Terrain.ExpandSlots(bool(req.expanded))
+	if req.has("smooth"): lvl.Terrain.SetSmoothBlending(bool(req.smooth))
+	if req.has("enabled"): lvl.Terrain.visible = bool(req.enabled)
+	var textures := []
+	for tex in lvl.Terrain.textures: textures.append(tex.resource_path if tex != null else "")
+	return _ok({ "expanded": lvl.Terrain.ExpandedSlots, "smooth": lvl.Terrain.SmoothBlending, "enabled": lvl.Terrain.visible, "textures": textures })
+
+func _configure_environment(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var before = lvl.SaveEnvironment()
+	if req.has("ambient"):
+		Global.Editor.Tools["Environment"].SetAmbientLight(_color(req.ambient, Color(1,1,1)))
+	if req.has("lighting"):
+		for level in Global.World.levels: level.ToggleLighting(bool(req.lighting))
+		var toggle = _native_read(Global.Editor, "LightingToggle")
+		if toggle != null: toggle.set_pressed_no_signal(bool(req.lighting))
+	if req.has("grid"): Global.Editor.ToggleGrid(bool(req.grid))
+	var settings = Global.Editor.Tools.get("MapSettings", null)
+	if req.has("grid_color") and settings != null: settings.SetGridColor(_color(req.grid_color, Color(1,1,1)))
+	if req.has("grid_style") and settings != null: settings.SetGridStyle(int(req.grid_style))
+	if req.has("camera_filter") and settings != null: settings.SetCameraFilter(int(req.camera_filter))
+	if req.has("building_wear") and settings != null: settings.SetBuildingWear(int(req.building_wear))
+	return _ok({ "before": before, "environment": lvl.SaveEnvironment() })
+
+func _modify_light(req : Dictionary) -> Dictionary:
+	var node = _resolve(req)
+	if node == null or not node is Light2D: return _err("id is not a light")
+	node.set_meta("preview", false)
+	if req.has("color"): node.color = _color(req.color, node.color)
+	if req.has("energy"): node.energy = float(req.energy)
+	if req.has("range"): node.texture_scale = float(req.range)
+	if req.has("shadows"): node.shadow_enabled = bool(req.shadows)
+	if req.has("enabled"): node.enabled = bool(req.enabled)
+	if req.has("rotation"): node.rotation = deg2rad(float(req.rotation))
+	if req.has("asset"):
+		var tex = _asset_tex("Lights", req.asset)
+		if tex == null: return _err("light texture unavailable")
+		node.texture = tex
+	return _ok({ "id": int(req.id), "color": "#" + node.color.to_html(), "energy": node.energy, "range": node.texture_scale, "shadows": node.shadow_enabled, "enabled": node.enabled })
+
+func _list_layers() -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	return _ok({ "level_id": lvl.ID, "layers": _native_pack(lvl.SaveLayers()), "locked": _native_pack(lvl.LockedLayers) })
+
+func _set_layer(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var index = int(req.get("index", 100))
+	if index < -4096 or index > 4096: return _err("layer is outside Godot's z-index range")
+	var label = str(req.get("label", "Layer " + str(index)))
+	var locked = lvl.get("LockedLayers")
+	if index in [-600,-500,-300,-200,0,500,600,800,1000]: return _err("built-in layer is locked")
+	var current = lvl.SaveLayers()
+	if current.has(index): return _err("layer already exists; rename it through Tool:LayerSettings controls")
+	lvl.LoadLayers({str(index):label})
+	lvl.AddMaterialLayer(index)
+	return _list_layers()
+
+func _set_element_layer(req : Dictionary) -> Dictionary:
+	var node = _resolve(req)
+	var lvl = Global.World.GetCurrentLevel()
+	if node == null or not node is Node2D: return _err("element does not support layers")
+	var layer = int(req.get("layer", 100))
+	if not lvl.SaveLayers().has(layer): return _err("layer does not exist")
+	node.z_index = layer
+	return _ok({ "id": int(req.id), "layer": node.z_index })
+
+func _draw_water(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var pts = _shape_points(req)
+	if pts.size() < 3: return _err("rect or >= 3 polygon points required")
+	var water = lvl.WaterMesh
+	water.DrawPolygon(pts, bool(req.get("erase", false)))
+	water.UpdateMesh(false)
+	return _ok({ "drawn": true, "erase": bool(req.get("erase", false)), "points": _native_pack(pts) })
+
+func _configure_water(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var water = lvl.WaterMesh
+	if req.has("deep_color"): water.DeepColor = _color(req.deep_color, water.DeepColor)
+	if req.has("shallow_color"): water.ShallowColor = _color(req.shallow_color, water.ShallowColor)
+	if req.has("blend_distance"): water.BlendDistance = float(req.blend_distance)
+	if req.has("border"): water.DisableBorder(not bool(req.border))
+	water.UpdateMesh(false)
+	return _ok({ "deep_color": "#" + water.DeepColor.to_html(), "shallow_color": "#" + water.ShallowColor.to_html(), "blend_distance": water.BlendDistance, "border": not water.disableBorder,"scope":"future_water_brush_defaults" })
+
+func _shape_points(req : Dictionary) -> PoolVector2Array:
+	if req.has("rect"):
+		var r = req.rect
+		if typeof(r) != TYPE_ARRAY or r.size() != 4: return PoolVector2Array()
+		if float(r[2]) <= 0 or float(r[3]) <= 0: return PoolVector2Array()
+		return PoolVector2Array([Vector2(r[0],r[1]), Vector2(r[0]+r[2],r[1]), Vector2(r[0]+r[2],r[1]+r[3]), Vector2(r[0],r[1]+r[3])])
+	return _points(req.get("points", []))
+
+func _draw_material(req : Dictionary) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var pts = _shape_points(req)
+	if pts.size() < 3: return _err("rect or >= 3 polygon points required")
+	var tex = _asset_tex("Materials", req.get("asset", ""))
+	if tex == null: return _err("material asset unavailable")
+	var layer = int(req.get("layer", 100))
+	if not lvl.SaveLayers().has(layer): return _err("layer does not exist")
+	var mesh = lvl.GetOrMakeMaterialMesh(layer, tex, bool(req.get("smooth", true)))
+	if mesh == null or not mesh.has_method("get_Bitmap"): return _err("material bitmap API is unavailable")
+	var bitmap = mesh.call("get_Bitmap").duplicate(true)
+	var dims = bitmap.get_size()
+	var cell_size = float(mesh.call("get_CellSize"))
+	var buffer = int(_native_read(mesh,"MapEdgeBuffer"))
+	if cell_size <= 0: return _err("material grid has invalid cell size")
+	var polygon := []
+	for point in pts: polygon.append(point)
+	var minp = pts[0]
+	var maxp = pts[0]
+	for point in pts:
+		minp.x = min(minp.x, point.x)
+		minp.y = min(minp.y, point.y)
+		maxp.x = max(maxp.x, point.x)
+		maxp.y = max(maxp.y, point.y)
+	for y in range(max(0,int(floor(minp.y/cell_size))+buffer), min(int(dims.y),int(ceil(maxp.y/cell_size))+buffer)):
+		for x in range(max(0,int(floor(minp.x/cell_size))+buffer), min(int(dims.x),int(ceil(maxp.x/cell_size))+buffer)):
+			if _point_in_poly(Vector2((x-buffer+0.5)*cell_size,(y-buffer+0.5)*cell_size), polygon): bitmap.set_bit(Vector2(x,y), not bool(req.get("erase", false)))
+	mesh.call("SetBitmap", bitmap)
+	mesh.call("UpdateMesh")
+	if mesh.has_method("FinalizeMeshAndBorders"): mesh.call("FinalizeMeshAndBorders")
+	return _ok({ "drawn": true, "layer": layer, "asset": req.asset,"cell_size":cell_size,"grid_buffer":buffer })
+
+func _configure_object(req : Dictionary) -> Dictionary:
+	var node = _resolve(req)
+	if node == null: return _err("element not found")
+	if req.has("mirror"):
+		if node.get("Mirror") == null: return _err("element has no mirror setting")
+		node.set("Mirror", bool(req.mirror))
+	if req.has("block_light"):
+		if not node.has_method("SetBlockLight"): return _err("element cannot block light")
+		node.call("SetBlockLight", bool(req.block_light))
+	if req.has("layer"):
+		var res = _set_element_layer(req)
+		if not res.ok: return res
+	if req.has("asset"):
+		var tex = _asset_tex("Objects", req.asset)
+		if tex == null or not node.has_method("SetTexture"): return _err("object texture unavailable")
+		node.call("SetTexture", tex)
+	return _ok({ "id": int(req.id), "layer": node.z_index, "mirror": node.get("Mirror"), "block_light": node.get("BlockLight") })
+
+func _modify_text(req : Dictionary) -> Dictionary:
+	var node = _resolve(req)
+	if node == null or not _is_text(node): return _err("id is not a text label")
+	if req.has("text"): node.text = str(req.text)
+	if req.has("color"): node.SetFontColor(_color(req.color, Color(0,0,0)))
+	if req.has("size") or req.has("font"): node.SetFont(str(req.get("font", node.fontName)), int(req.get("size", node.fontSize)))
+	return _ok(_describe(node))
+
+func _modify_wall(req : Dictionary) -> Dictionary:
+	var node = _resolve(req)
+	if node == null or not node.has_method("UpdateTexture") or not node.has_method("RemakeLines"): return _err("id is not a wall")
+	if req.has("asset"):
+		var tex = _asset_tex("Walls", req.asset)
+		if tex == null: return _err("wall asset unavailable")
+		node.UpdateTexture(tex)
+	if req.has("color"): node.SetColor(_color(req.color, Color(1,1,1)))
+	if req.has("shadow"): node.HasShadow = bool(req.shadow)
+	if req.has("points"):
+		var pts = _points(req.points)
+		if pts.size() < 2: return _err(">= 2 wall points required")
+		node.Set(pts, node.Texture, node.Color, bool(req.get("loop", node.Loop)), node.HasShadow, int(req.get("type", node.Type)), int(req.get("joint", node.Joint)), node.NormalizeUV)
+	node.RemakeLines()
+	return _ok(_describe(node))
+
+func _set_trace_image(req : Dictionary) -> Dictionary:
+	var path = str(req.get("path", ""))
+	if path == "":
+		Global.World.RemoveTraceImage()
+		return _ok({ "cleared": true })
+	if not File.new().file_exists(path): return _err("trace image does not exist")
+	Global.World.AddTraceImage(path, float(req.get("scale", 1.0)), float(req.get("opacity", 0.5)))
+	if bool(req.get("center", true)): Global.World.CenterTraceImage()
+	Global.World.TraceImageVisible = bool(req.get("visible", true))
+	return _ok({ "path": path, "reference_only": true })
+
+func _rename_level(req : Dictionary) -> Dictionary:
+	var level = Global.World.TryGetLevel(int(req.get("index", -1)))
+	if level == null: return _err("level index out of range")
+	level.Label = str(req.get("label", "Level"))
+	Global.Editor.UpdateLevelOptions()
+	return _list_levels()
+
+func _clone_level(req : Dictionary) -> Dictionary:
+	var level = Global.World.TryGetLevel(int(req.get("index", -1)))
+	if level == null: return _err("level index out of range")
+	var clone = Global.World.CloneLevel(level, str(req.get("label", "Copy")))
+	if clone == null: return _err("clone failed")
+	Global.Editor.UpdateLevelOptions()
+	return _ok({ "id": clone.ID, "label": clone.Label })
+
+func _reorder_levels(req : Dictionary) -> Dictionary:
+	var ids = req.get("ids", [])
+	if typeof(ids) != TYPE_ARRAY or ids.size() != Global.World.levels.size(): return _err("include every level id exactly once")
+	var order := []
+	var seen := {}
+	for id in ids:
+		var lv = Global.World.GetLevelByID(int(id))
+		if lv == null or seen.has(int(id)): return _err("duplicate or unknown level")
+		seen[int(id)] = true
+		order.append(lv)
+	Global.World.SetNewLevelOrder(order)
+	return _list_levels()
+
+func _compare_levels(req : Dictionary) -> Dictionary:
+	var index = int(req.get("index", -1))
+	if index == -1:
+		Global.World.DisableCompareLevels()
+		return _ok({ "enabled": false })
+	var lv = Global.World.TryGetLevel(index)
+	if lv == null: return _err("level index out of range")
+	Global.World.SetCompareLevels(lv, float(req.get("reference_opacity", 0.35)), float(req.get("current_opacity", 1.0)), true)
+	return _ok({ "enabled": true, "reference": lv.ID })
+
+func _save_document(req : Dictionary) -> Dictionary:
+	var source = str(_native_read(Global.Editor,"CurrentMapFile"))
+	var path = str(req.get("path",source))
+	if path == "" or not path.is_abs_path() or path.get_extension() != "dungeondraft_map": return _err("an absolute .dungeondraft_map path is required")
+	for lvl in Global.World.levels:
+		for container in [lvl.Lights,lvl.Pathways]:
+			for node in container.get_children():
+				if not node.has_meta("preview"): node.set_meta("preview",false)
+	var world = Global.World.Save()
+	if typeof(world) != TYPE_DICTIONARY: return _err("native world serialization failed; inspect component Save methods and asset availability")
+	var payload = {"header":{"creation_build":"1.2.0.1 opulent kirin","creation_date":OS.get_datetime(),"uses_default_assets":true,"asset_manifest":[],"editor_state":{}},"world":world,"mod":{}}
+	var file = File.new()
+	if source != "" and file.open(source,File.READ) == OK:
+		var original = JSON.parse(file.get_as_text())
+		file.close()
+		if original.error == OK and typeof(original.result) == TYPE_DICTIONARY:
+			payload.header = original.result.get("header",payload.header)
+			payload.mod = original.result.get("mod",{})
+	var header = Global.Header.Save()
+	if typeof(header) != TYPE_DICTIONARY: return _err("native header serialization failed")
+	payload.header = header
+	var temporary = path + ".mcp-tmp"
+	if file.open(temporary,File.WRITE) != OK: return _err("cannot create map file")
+	file.store_string(JSON.print(payload,"\t"))
+	file.close()
+	var directory = Directory.new()
+	if file.file_exists(path):
+		if directory.copy(path,path+".mcp-backup") != OK: return _err("cannot back up the existing destination")
+		if directory.remove(path) != OK: return _err("cannot replace the existing destination")
+	if directory.rename(temporary,path) != OK:
+		if file.file_exists(path+".mcp-backup"): directory.copy(path+".mcp-backup",path)
+		return _err("cannot finalize map file; previous destination restored where available")
+	if bool(req.get("update_current",true)):
+		Global.Editor.OnOpenedOrSaved(path)
+	return _ok({"saved":true,"path":path,"levels":Global.World.levels.size(),"embedded_images":world.get("embedded",{}).size(),"native_serializer":true})
+
+func _open_document(req : Dictionary) -> Dictionary:
+	var path = str(req.get("path", ""))
+	if not File.new().file_exists(path) or path.get_extension() != "dungeondraft_map": return _err("map file does not exist")
+	var file = File.new()
+	if file.open(path, File.READ) != OK: return _err("cannot read map file")
+	var parsed = JSON.parse(file.get_as_text())
+	file.close()
+	if parsed.error != OK or typeof(parsed.result) != TYPE_DICTIONARY or not parsed.result.has("world"): return _err("invalid map file")
+	Global.Editor.ForceOpenMap(path)
+	_undo_stack.clear()
+	_redo_stack.clear()
+	return _ok({ "opened": true, "path": path })
+
+func _export_document(req : Dictionary) -> Dictionary:
+	var path = str(req.get("path", ""))
+	var mode = int(req.get("mode", 0))
+	var ppi = int(req.get("ppi", 128))
+	if path == "" or not path.is_abs_path() or mode < 0 or mode > 3 or ppi < 8 or ppi > 1024: return _err("invalid export path, format or resolution")
+	if req.has("quality"): Global.Exporter.Quality = int(req.quality)
+	Global.Editor.ToggleGrid(bool(req.get("grid",false)))
+	Global.Exporter.Start(mode, ppi, path)
+	return _ok({ "path": path, "mode": mode, "ppi": ppi, "grid":bool(req.get("grid",false)),"async": true })
+
+func _capabilities() -> Dictionary:
+	return _ok({ "protocol": PROTOCOL_VERSION, "image_import": true, "native_api": true, "terrain": true, "water": true, "materials": true, "lighting": true, "levels": true, "layers": true, "elevation": { "native_3d_heightmap": false, "visual_cliffs": true, "layer_order": true, "multiple_floors": true }, "native_targets": _native_targets().result.targets })
+
+# Access the application's own controls for operations with no public API.
+# Only descendants of the discovered Editor/Tool/Window are accessible.
+func _ui_tree(req : Dictionary) -> Dictionary:
+	var target = str(req.get("target", "Editor"))
+	var root = _native_target(target)
+	if root == null: return _err("UI target is unavailable")
+	var entries := []
+	var search = str(req.get("search", "")).to_lower()
+	var limit = int(req.get("limit",500))
+	if root is Node: _ui_walk(root, "", 0, entries, search, limit)
+	else:
+		for method in root.get_method_list():
+			if str(method.name).begins_with("get_") and method.args.empty() and int(method["return"].get("type",0)) == TYPE_OBJECT:
+				var control = root.call(method.name)
+				if control != null and control is Node: _ui_walk(control, target+"."+str(method.name).substr(4), 0, entries, search, limit)
+		if entries.empty(): _ui_walk(Global.Editor, "",0,entries,search,limit)
+	return _ok({"target":target,"controls":entries,"limit":int(req.get("limit",500))})
+
+func _ui_walk(node, path, depth, entries, search, limit):
+	if depth > 24 or entries.size() >= min(1500,max(1,limit)): return
+	path += "/" + str(node.name)
+	if node is Control:
+		var entry = _native_pack(node)
+		entry["path"] = path
+		entry["visible"] = node.is_visible_in_tree()
+		entry["kind"] = node.get_class()
+		if node is BaseButton: entry["disabled"] = node.disabled
+		if node is Button or node is Label or node is LineEdit or node is TextEdit: entry["text"] = node.text
+		if node is BaseButton and node.toggle_mode: entry["checked"] = node.pressed
+		if node is Range:
+			entry["value"] = node.value
+			entry["min"] = node.min_value
+			entry["max"] = node.max_value
+		if node is OptionButton:
+			entry["selected"] = node.selected
+			var items := []
+			for index in range(node.get_item_count()): items.append({"index":index,"id":node.get_item_id(index),"text":node.get_item_text(index)})
+			entry["items"] = items
+		if node is ColorPickerButton: entry["color"] = _native_pack(node.color)
+		if search == "" or JSON.print(entry).to_lower().find(search) != -1: entries.append(entry)
+	for child in node.get_children(): _ui_walk(child,path,depth+1,entries,search,limit)
+
+func _ui_action(req : Dictionary) -> Dictionary:
+	var node = _native_target(str(req.get("target","")))
+	if node == null or not node is Control: return _err("select a live control handle returned by ui_tree")
+	var action = str(req.get("action", ""))
+	var value = req.get("value",null)
+	match action:
+		"press":
+			if not node is BaseButton or node.disabled: return _err("control is not an enabled button")
+			if node.toggle_mode: node.pressed = not node.pressed
+			node.call_deferred("emit_signal","pressed")
+		"check":
+			if not node is BaseButton or not node.toggle_mode or typeof(value) != TYPE_BOOL or node.disabled: return _err("a toggle button and boolean value are required")
+			node.pressed = value
+		"value":
+			if not node is Range or not typeof(value) in [TYPE_INT,TYPE_REAL]: return _err("a numeric range control is required")
+			if float(value)<node.min_value or float(value)>node.max_value: return _err("value is outside the control range")
+			node.value = float(value)
+		"text":
+			if not (node is LineEdit or node is TextEdit) or typeof(value)!=TYPE_STRING: return _err("a text field is required")
+			node.text = value
+			node.emit_signal("text_changed",value) if node is LineEdit else node.emit_signal("text_changed")
+		"submit":
+			if not node is LineEdit: return _err("a line edit is required")
+			node.emit_signal("text_entered",node.text)
+		"select":
+			if not node is OptionButton or not typeof(value) in [TYPE_INT,TYPE_REAL] or float(value)!=float(int(value)): return _err("an option button and integer index are required")
+			var index = int(value)
+			if index<0 or index>=node.get_item_count() or node.is_item_disabled(index): return _err("invalid option index")
+			node.select(index)
+			node.emit_signal("item_selected",index)
+		"color":
+			if not node is ColorPickerButton or typeof(value)!=TYPE_STRING: return _err("a color picker is required")
+			node.color = Color(value)
+			node.emit_signal("color_changed",node.color)
+		"show":
+			if node is Popup: node.popup_centered()
+			else: node.show()
+		"hide": node.hide()
+		_: return _err("unsupported action; use press/check/value/text/submit/select/color/show/hide")
+	return _ok({"target":req.target,"action":action,"undoable":false})

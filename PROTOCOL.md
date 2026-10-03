@@ -224,7 +224,7 @@ Ctrl+Z in Dungeondraft.
   internally. `floor` = `"pattern"` / `"terrain"` / `"none"`.
 - **`add_roof`** — `points` is the roof's **RIDGE line** (the peak), **not** a
   footprint to trace. `Roof.Set(points, width, type)` builds a complete,
-  self-closing roof that slopes down `width` woxels perpendicular to each side of
+  self-closing roof that slopes down `width` world pixels perpendicular to each side of
   the ridge, with hips/gables off the ridge ends. The covered footprint = the
   ridge's bounding box expanded by `width` on every side. So **2 points already
   make a full, clean roof** (a short ridge → a near-pyramid hip). To roof a
@@ -264,3 +264,39 @@ Ctrl+Z in Dungeondraft.
   falls back to freestanding unless `fallback_free:false`. `flip` reverses the
   facing. The response `kind` is `"wall_portal"` when mounted, `"portal"` when
   freestanding.
+
+
+## Protocol 17 extensions
+
+Native access: `native_targets`, `native_describe`, `native_get`, `native_set`,
+`native_call`; UI access: `ui_tree`, `ui_action`.
+
+Drawing/state commands: `import_image`, `configure_terrain`,
+`configure_environment`, `modify_light`, `list_layers`, `set_layer`,
+`set_element_layer`, `configure_object`, `draw_water`, `configure_water`,
+`draw_material`, `modify_text`, `modify_wall`, `set_trace_image`,
+`rename_level`, `clone_level`, `reorder_levels`, `compare_levels`,
+`save_document`, `open_document`, `export_document`, `capabilities`.
+
+The Python MCP layer additionally composes `batch_commands`, `draw_elevation`
+and `scatter_objects`. Batches report partial completion and are not atomic.
+PNG embedding uses native ObjectTool.EmbedObject, which creates a real prop;
+never record its preview again. Lights need preview=false metadata and a valid
+texture for native serialization. Terrain RestoreSplat2 requires BOTH splat images.
+Expanded terrain undo records textures, both splats and the originating floor.
+Paths also need preview=false metadata. Save repairs missing preview metadata on
+committed path/light nodes without changing actual previews.
+
+`configure_water` colors/blend distance affect future strokes; the shoreline
+toggle affects the current floor. Existing water keeps its per-polygon colors.
+`export_document` accepts `grid` (default false), explicitly applying grid visibility
+before starting the native exporter. This changes editor grid visibility too.
+Input colors accept #RRGGBB; native saved/read hex colors use ARGB order.
+
+All drawing coordinates use world pixels (256 per grid square). Floors use list
+indexes for selection/renaming/cloning; order changes use stable floor ids. Drawing
+layers are different from floors and use z indexes. Packed-array strings in map
+JSON are the native save representation; do not replace them with base64 or arrays.
+
+Sources: installed Dungeondraft 1.2.0.1 runtime and
+https://megasploot.github.io/DungeondraftModdingAPI/reference/Header/ .

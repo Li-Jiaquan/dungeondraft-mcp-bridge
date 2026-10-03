@@ -15,7 +15,7 @@ class BridgeError(Exception):
 
 
 class BridgeClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 8787, timeout: float = 5.0):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8787, timeout: float = 30.0):
         self.host = host
         self.port = port
         self.timeout = timeout
