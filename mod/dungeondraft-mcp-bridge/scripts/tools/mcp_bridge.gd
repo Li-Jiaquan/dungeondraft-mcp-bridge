@@ -2589,6 +2589,28 @@ func _modify_text(req : Dictionary) -> Dictionary:
 func _modify_wall(req : Dictionary) -> Dictionary:
 	var node = _resolve(req)
 	if node == null or not node.has_method("UpdateTexture") or not node.has_method("RemakeLines"): return _err("id is not a wall")
+	var pts = PoolVector2Array()
+	var mounted = node.Portals.size() > 0
+	var anchors = []
+	if req.has("points"):
+		pts = _points(req.points)
+		if pts.size() < 2: return _err(">= 2 wall points required")
+		# Wall.Set and ModifyPoint can clear mounted portals on this build.
+		# Reject topology changes before touching texture/tint instead of silently
+		# deleting doors/windows; callers can explicitly remove and remount those.
+		if mounted and (pts.size() != node.Points.size() or bool(req.get("loop", node.Loop)) != node.Loop or int(req.get("type", node.Type)) != node.Type or int(req.get("joint", node.Joint)) != node.Joint):
+			return _err("a wall with mounted portals requires the same vertex count, loop, type and joint; remove/remount portals explicitly for topology changes")
+		if mounted:
+			for portal in node.Portals:
+				var i = int(portal.WallPointIndex)
+				var j = (i + 1) % pts.size()
+				if i < 0 or i >= pts.size() or (not node.Loop and j == 0): return _err("invalid mounted portal anchor")
+				var old_edge = node.Points[j] - node.Points[i]
+				if old_edge.length_squared() < 0.001: return _err("degenerate mounted wall segment")
+				var t = clamp((portal.position - node.Points[i]).dot(old_edge) / old_edge.length_squared(), 0.0, 1.0)
+				var length = pts[i].distance_to(pts[j])
+				if min(t, 1.0 - t) * length < float(portal.Radius): return _err("edited segment is too short for its mounted portal")
+				anchors.append({"portal": portal, "index": i, "position": pts[i].linear_interpolate(pts[j], t)})
 	if req.has("asset"):
 		var tex = _asset_tex("Walls", req.asset)
 		if tex == null: return _err("wall asset unavailable")
@@ -2596,9 +2618,15 @@ func _modify_wall(req : Dictionary) -> Dictionary:
 	if req.has("color"): node.SetColor(_color(req.color, Color(1,1,1)))
 	if req.has("shadow"): node.HasShadow = bool(req.shadow)
 	if req.has("points"):
-		var pts = _points(req.points)
-		if pts.size() < 2: return _err(">= 2 wall points required")
-		node.Set(pts, node.Texture, node.Color, bool(req.get("loop", node.Loop)), node.HasShadow, int(req.get("type", node.Type)), int(req.get("joint", node.Joint)), node.NormalizeUV)
+		if mounted:
+			node.Points = pts
+			for anchor in anchors:
+				anchor.portal.position = anchor.position
+				node.MovePortal(anchor.portal, anchor.index)
+				var direction = (pts[(anchor.index + 1) % pts.size()] - pts[anchor.index]).normalized()
+				anchor.portal.Direction = -direction if anchor.portal.Flip else direction
+		else:
+			node.Set(pts, node.Texture, node.Color, bool(req.get("loop", node.Loop)), node.HasShadow, int(req.get("type", node.Type)), int(req.get("joint", node.Joint)), node.NormalizeUV)
 	node.RemakeLines()
 	return _ok(_describe(node))
 

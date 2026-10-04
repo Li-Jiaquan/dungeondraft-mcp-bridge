@@ -33,6 +33,35 @@ forwards calls as JSON. See [PROTOCOL.md](PROTOCOL.md) for the wire format.
 > across query / create / modify / terrain / levels / selection / capture /
 > camera / undo (see below).
 
+## Example: an editable map with AI-generated props
+
+[Embervault Underhall](examples/embervault-ai/README.md) includes a native map,
+clean/grid exports, eleven transparent generated sprites with complete prompts,
+an English/Chinese drawing process, layout records and a live validator. No
+external asset pack is required. The example uses an artistic furniture scale,
+four descending spiral stairs and sixteen native light sources.
+
+![Embervault Underhall preview](examples/embervault-ai/preview.png)
+
+## Mounted doors/windows during wall edits
+
+`modify_wall` preserves mounted portal IDs and relative segment positions when
+moving existing vertices, including their orientation, texture, radius and
+closed state. It refuses vertex-count/loop/type/joint changes, or a segment too
+short to contain its portal, before changing geometry, texture or tint. Remove
+and explicitly remount the portals for topology changes. This avoids the native
+`Wall.Set`/`ModifyPoint` paths that can silently delete mounted doors/windows.
+
+The opt-in regression saves the open map, loads a separate fixture and restores
+the prior map after testing. Keep Dungeondraft visible, and run:
+
+```powershell
+python tests/live_wall_portals.py --run-live
+```
+
+Its recovery copy remains in the system temporary directory; the editor points
+to that copy after restoration. The original file is retained.
+
 ## Version 0.3: spatial validation
 
 Furniture edits now check the **whole rotated footprint** before changing the map.
@@ -319,8 +348,8 @@ Two things will bite you if you don't know them up front:
   handler, server for the tool registration); changing an *existing* handler's
   behavior needs only the mod reload.
 
-- **There's no live `eval`/introspect command**, so probing a running node's
-  properties needs a mod reload. When a DD API behaves unexpectedly (e.g. a
+- **Use `native_describe` and `native_get` to inspect exposed methods and
+  properties.** Handler changes still need a mod reload. When a DD API behaves unexpectedly (e.g. a
   setter that doesn't stick), a quick way to diagnose it is to **return
   intermediate state in the response** — stash before/after values in a debug
   field — so one reload shows where a value changes.

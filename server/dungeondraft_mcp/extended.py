@@ -324,7 +324,14 @@ def register(mcp, bridge):
                     shadow: bool | None = None, points: list[list[float]] | None = None,
                     loop: bool | None = None, type: int | None = None, joint: int | None = None,
                     spatial_check: bool = True) -> dict:
-        """Change an existing wall's texture, tint, shadow or geometry."""
+        """Change an existing wall's texture, tint, shadow or geometry.
+
+        Moving existing vertices preserves mounted doors/windows and their
+        relative segment anchors. Segments too short to contain a portal fail.
+        Changing vertex
+        count, loop, type or joint on a wall with portals is refused before editing;
+        remove and remount those portals explicitly for a topology change.
+        """
         return bridge.request('modify_wall', **{k:v for k,v in locals().items() if v is not None and k != 'bridge'})
 
     @mcp.tool()

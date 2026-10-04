@@ -1,0 +1,233 @@
+{
+  "stairs": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE isolated top-down RPG battlemap sprite on genuine transparent alpha. Primary request: an original descending spiral stone staircase viewed EXACTLY orthographically from directly overhead. A circular recessed well of charcoal limestone, ten broad radial wedge treads winding clockwise down to a small very dark central shaft; top landing and opening in the outer rim at the RIGHT (east) side. The descending treads clearly become darker toward the center. Entire stair within a circular footprint, no surrounding floor. Style: clean hand-painted fantasy game art, precise dark ink contours, muted slate stone, restrained warm bronze edge details, softly varied stone grains. Neutral diffuse illumination only, no cast shadow beyond the asset, no environment, no text, no labels, no watermark. Do not reproduce any artist's existing work. Center the complete object with 8% transparent margin. Actual transparent background, no checkerboard pixels.",
+    "asset": "assets/stairs.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      72,
+      62,
+      1179,
+      1192
+    ],
+    "import_size": [
+      502,
+      512
+    ],
+    "sha256": "7c09ebb222f5e5156f2340e69c59a2bcf216ae14f9af262676ba069c5dd825e3",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "table": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no visible upright front faces, no isometric perspective. Clean detailed hand-painted fantasy game art, precise dark ink contours, warm aged oak and restrained dark bronze accents, softly varied natural grain, sophisticated muted palette. Neutral diffuse lighting, no cast shadow outside object, no environment or floor, no text, no logo or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: one rectangular oak work table, two and a half times longer than wide, length vertical in image. Thick beveled tabletop, dark iron corner brackets. A folded blank parchment plan, small hammer and two short brass tools neatly grouped at the top quarter; most of tabletop empty. Props fully contained inside table outline. No chairs attached.",
+    "asset": "assets/table.png",
+    "source_size": [
+      1024,
+      1536
+    ],
+    "alpha_bounds": [
+      208,
+      32,
+      818,
+      1489
+    ],
+    "import_size": [
+      214,
+      512
+    ],
+    "sha256": "18bd13c07f9750638a89fab76ba3ef13d3b1b25ed8b623a5ac2556dbb2240d65",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "stool": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no visible upright front faces, no isometric perspective. Clean detailed hand-painted fantasy game art, precise dark ink contours, warm aged oak and restrained dark bronze accents, softly varied natural grain, sophisticated muted palette. Neutral diffuse lighting, no cast shadow outside object, no environment or floor, no text, no logo or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: one small round low wooden stool viewed directly above, round warm oak seat, subtle worn grain, a bronze ring binding the rim. No tall backrest, no extra stool, no floor.",
+    "asset": "assets/stool.png",
+    "source_size": [
+      1297,
+      1212
+    ],
+    "alpha_bounds": [
+      189,
+      112,
+      1114,
+      1063
+    ],
+    "import_size": [
+      498,
+      512
+    ],
+    "sha256": "cc705b2708cb14b3417cf92a78f836f3153a2a685e20d40e45997fef0150609e",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "barrel": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no visible upright front faces, no isometric perspective. Clean detailed hand-painted fantasy game art, precise dark ink contours, warm aged oak and restrained dark bronze accents, softly varied natural grain, sophisticated muted palette. Neutral diffuse lighting, no cast shadow outside object, no environment or floor, no text, no logo or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: one upright coopered oak barrel viewed directly overhead, circular closed lid with wooden planks, dark bronze rim hoops, restrained small metal bung. Nothing beside or underneath it.",
+    "asset": "assets/barrel.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      56,
+      51,
+      1198,
+      1203
+    ],
+    "import_size": [
+      508,
+      512
+    ],
+    "sha256": "00ca7e047d5b4a2694c5bb497232cbed3bc1e7f2ccb1175cb8c970aca9a5df9b",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "pillar": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no visible upright front faces, no isometric perspective. Clean detailed hand-painted fantasy game art, precise dark ink contours, warm aged oak and restrained dark bronze accents, softly varied natural grain, sophisticated muted palette. Neutral diffuse lighting, no cast shadow outside object, no environment or floor, no text, no logo or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: one square carved stone structural column capital viewed directly overhead, beveled slate-gray concentric square moldings and a small warm bronze inset square at its center. Symmetric, substantial masonry, simple geometric carved ornament, no perspective, no floor around.",
+    "asset": "assets/pillar.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      123,
+      124,
+      1130,
+      1125
+    ],
+    "import_size": [
+      512,
+      509
+    ],
+    "sha256": "1ec8ca3a5330affeb04927aa22f5a0d86953f3c62e686c8078f64a471326f1ec",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "crate": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no isometric perspective. Clean hand-painted fantasy game art, precise dark ink contours, warm aged oak and dark bronze, muted slate masonry, softly varied natural grain, cohesive restrained palette. Neutral diffuse lighting, no cast shadow beyond asset, no environment or floor, no text, no logos or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: One square closed oak storage crate, diagonal cross braces and small dark iron corner brackets. Directly overhead, square top.",
+    "asset": "assets/crate.png",
+    "source_size": [
+      1283,
+      1226
+    ],
+    "alpha_bounds": [
+      151,
+      138,
+      1130,
+      1097
+    ],
+    "import_size": [
+      512,
+      502
+    ],
+    "sha256": "68b06703f8adf4212756629cf0e9cd2dc7630596327502df65191293402e9188",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "bed": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no isometric perspective. Clean hand-painted fantasy game art, precise dark ink contours, warm aged oak and dark bronze, muted slate masonry, softly varied natural grain, cohesive restrained palette. Neutral diffuse lighting, no cast shadow beyond asset, no environment or floor, no text, no logos or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: One single bed viewed directly above. Length vertical, dark oak frame, deep burgundy wool blanket, folded cream sheet and one cream pillow at top. All bedding contained inside bed outline. No bedside furniture.",
+    "asset": "assets/bed.png",
+    "source_size": [
+      1024,
+      1536
+    ],
+    "alpha_bounds": [
+      197,
+      86,
+      828,
+      1443
+    ],
+    "import_size": [
+      238,
+      512
+    ],
+    "sha256": "7ece495c51a9ebf29c1b6ab07a3fc0ebdd1db2b275c3067b2ff8e2904ad36676",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "chandelier": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no isometric perspective. Clean hand-painted fantasy game art, precise dark ink contours, warm aged oak and dark bronze, muted slate masonry, softly varied natural grain, cohesive restrained palette. Neutral diffuse lighting, no cast shadow beyond asset, no environment or floor, no text, no logos or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: One circular bronze and wrought iron chandelier viewed directly from overhead, with six small ivory lit candles arranged equally around a ring. A small central suspension hub. Transparent open spaces within ring. No ceiling, no broad glowing halo.",
+    "asset": "assets/chandelier.png",
+    "source_size": [
+      1278,
+      1230
+    ],
+    "alpha_bounds": [
+      6,
+      37,
+      1272,
+      1146
+    ],
+    "import_size": [
+      512,
+      449
+    ],
+    "sha256": "a2e4fba290566f5e8fde90801f21743cb4759bb5dbb4c8a8b94a201dbc45efd7",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "torch": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no isometric perspective. Clean hand-painted fantasy game art, precise dark ink contours, warm aged oak and dark bronze, muted slate masonry, softly varied natural grain, cohesive restrained palette. Neutral diffuse lighting, no cast shadow beyond asset, no environment or floor, no text, no logos or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: One compact round bronze brazier fixture viewed directly above, small amber flames rising from glowing coals inside bowl. Small dark iron mounting bracket extends north from rim. No light halo beyond the object.",
+    "asset": "assets/torch.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      243,
+      81,
+      1010,
+      1118
+    ],
+    "import_size": [
+      379,
+      512
+    ],
+    "sha256": "ede882a65d3edc6acab685f32ebb202072584c8e18facecdb3a9a75238b4846d",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "hearth": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no isometric perspective. Clean hand-painted fantasy game art, precise dark ink contours, warm aged oak and dark bronze, muted slate masonry, softly varied natural grain, cohesive restrained palette. Neutral diffuse lighting, no cast shadow beyond asset, no environment or floor, no text, no logos or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: One small rectangular stone hearth firebox viewed directly overhead, width horizontal, muted gray masonry encloses glowing amber coals and three burning split logs. Clean footprint, no smoke or external glow, no tall facade.",
+    "asset": "assets/hearth.png",
+    "source_size": [
+      1536,
+      1024
+    ],
+    "alpha_bounds": [
+      194,
+      165,
+      1342,
+      847
+    ],
+    "import_size": [
+      512,
+      304
+    ],
+    "sha256": "74dc9d03570149e3468a5c8b546caae5252860fad09aec1a8209d3c3ec6153fa",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  },
+  "shelf": {
+    "prompt": "Use case: stylized-concept. Asset type: ONE original isolated RPG battlemap prop sprite with genuine transparent alpha. EXACTLY orthographic top-down view from directly overhead, no isometric perspective. Clean hand-painted fantasy game art, precise dark ink contours, warm aged oak and dark bronze, muted slate masonry, softly varied natural grain, cohesive restrained palette. Neutral diffuse lighting, no cast shadow beyond asset, no environment or floor, no text, no logos or watermark. Complete object centered with 10% transparent margin. Actual transparent background, no checkerboard pixels. Do not reproduce any artist's existing work. Primary request: One narrow long oak storage shelf viewed exactly overhead, length vertical, organized compartments containing muted green and amber bottles, closed books, rolled blank parchments. Long narrow footprint, no readable text or extra surrounding furniture.",
+    "asset": "assets/shelf.png",
+    "source_size": [
+      1024,
+      1536
+    ],
+    "alpha_bounds": [
+      300,
+      54,
+      724,
+      1476
+    ],
+    "import_size": [
+      153,
+      512
+    ],
+    "sha256": "b2bb174254a5cf34b8c878be28f691d955d2ef37a1d17ca774be842237e2648c",
+    "generation": "native imagegen; text-only; transparent_background=true",
+    "preparation": "Crop to alpha>10 bounds; proportional Lanczos resize to maximum 512 pixels; no repainting."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "pass": true,
+  "door_and_window_preserved": true,
+  "positions_on_edited_wall": true,
+  "orientation_follows_rotated_segment": true,
+  "flip_radius_asset_and_closed_state_preserved": true,
+  "topology_rejected_without_partial_color_edit": true,
+  "short_segment_rejected_without_partial_edit": true,
+  "portal_free_topology_change": true,
+  "save_reopen": true,
+  "Dungeondraft": "1.2.0.1",
+  "date": "2026-10-05"
+}

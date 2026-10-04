@@ -1,0 +1,329 @@
+{
+  "layout": {
+    "pass": true,
+    "unexpected_findings": [],
+    "intentional_column_wall_contacts": 26,
+    "floor_level_objects_checked": 91,
+    "tabletop_support": {},
+    "room_containment": {
+      "67": true,
+      "68": true,
+      "69": true,
+      "70": true,
+      "71": true,
+      "72": true,
+      "73": true,
+      "74": true,
+      "75": true,
+      "76": true,
+      "77": true,
+      "78": true,
+      "79": true,
+      "80": true,
+      "81": true,
+      "82": true,
+      "83": true,
+      "84": true,
+      "85": true,
+      "86": true,
+      "87": true,
+      "88": true,
+      "89": true,
+      "90": true,
+      "91": true,
+      "92": true,
+      "93": true,
+      "94": true,
+      "95": true,
+      "96": true,
+      "97": true,
+      "98": true,
+      "99": true,
+      "100": true,
+      "101": true,
+      "102": true,
+      "103": true,
+      "104": true,
+      "105": true,
+      "106": true,
+      "107": true,
+      "108": true,
+      "109": true,
+      "110": true,
+      "111": true,
+      "112": true,
+      "113": true,
+      "114": true,
+      "115": true,
+      "116": true,
+      "117": true,
+      "118": true,
+      "119": true,
+      "120": true,
+      "121": true,
+      "122": true,
+      "123": true,
+      "124": true,
+      "125": true,
+      "126": true,
+      "127": true,
+      "128": true,
+      "130": true,
+      "132": true,
+      "134": true,
+      "136": true,
+      "138": true
+    }
+  },
+  "navigation_small_actor": {
+    "pass": true,
+    "actor_diameter_tiles": 0.4,
+    "grid_step_tiles": 0.125,
+    "targets": {
+      "lower-vault": {
+        "tile": [
+          11,
+          33
+        ],
+        "reachable": true
+      },
+      "southwest-stair-landing": {
+        "tile": [
+          7.375,
+          35.25
+        ],
+        "reachable": true
+      },
+      "southeast-stair-landing": {
+        "tile": [
+          14.625,
+          35.25
+        ],
+        "reachable": true
+      },
+      "hall-south": {
+        "tile": [
+          11,
+          25
+        ],
+        "reachable": true
+      },
+      "hall-middle": {
+        "tile": [
+          11,
+          18
+        ],
+        "reachable": true
+      },
+      "hall-north": {
+        "tile": [
+          11,
+          10
+        ],
+        "reachable": true
+      },
+      "upper-store": {
+        "tile": [
+          11,
+          6
+        ],
+        "reachable": true
+      },
+      "northwest-stair-landing": {
+        "tile": [
+          6.75,
+          4.75
+        ],
+        "reachable": true
+      },
+      "northeast-stair-landing": {
+        "tile": [
+          15.25,
+          4.75
+        ],
+        "reachable": true
+      },
+      "private-workshop-door": {
+        "tile": [
+          15.125,
+          12.375
+        ],
+        "reachable": true
+      },
+      "left-work-bay": {
+        "tile": [
+          6.875,
+          14.25
+        ],
+        "reachable": true
+      },
+      "right-dining-bay": {
+        "tile": [
+          15.8,
+          20.5
+        ],
+        "reachable": true
+      },
+      "sleeping-bay": {
+        "tile": [
+          16.6,
+          26.4
+        ],
+        "reachable": true
+      }
+    },
+    "reachable_nodes": 16598,
+    "method": "4-neighbor flood fill, full rotated furniture envelopes, masonry columns and native wall widths; open door intervals. Outside native floor polygons is forbidden."
+  },
+  "navigation_combat_token": {
+    "pass": true,
+    "actor_diameter_tiles": 1,
+    "grid_step_tiles": 0.125,
+    "targets": {
+      "lower-vault": {
+        "tile": [
+          11,
+          33
+        ],
+        "reachable": true
+      },
+      "southwest-stair-landing": {
+        "tile": [
+          7.375,
+          35.25
+        ],
+        "reachable": true
+      },
+      "southeast-stair-landing": {
+        "tile": [
+          14.625,
+          35.25
+        ],
+        "reachable": true
+      },
+      "hall-south": {
+        "tile": [
+          11,
+          25
+        ],
+        "reachable": true
+      },
+      "hall-middle": {
+        "tile": [
+          11,
+          18
+        ],
+        "reachable": true
+      },
+      "hall-north": {
+        "tile": [
+          11,
+          10
+        ],
+        "reachable": true
+      },
+      "upper-store": {
+        "tile": [
+          11,
+          6
+        ],
+        "reachable": true
+      },
+      "northwest-stair-landing": {
+        "tile": [
+          6.75,
+          4.75
+        ],
+        "reachable": true
+      },
+      "northeast-stair-landing": {
+        "tile": [
+          15.25,
+          4.75
+        ],
+        "reachable": true
+      },
+      "private-workshop-door": {
+        "tile": [
+          15.125,
+          12.375
+        ],
+        "reachable": true
+      },
+      "left-work-bay": {
+        "tile": [
+          6.875,
+          14.25
+        ],
+        "reachable": true
+      },
+      "right-dining-bay": {
+        "tile": [
+          15.8,
+          20.5
+        ],
+        "reachable": true
+      },
+      "sleeping-bay": {
+        "tile": [
+          16.6,
+          26.4
+        ],
+        "reachable": true
+      }
+    },
+    "reachable_nodes": 10359,
+    "method": "4-neighbor flood fill, full rotated furniture envelopes, masonry columns and native wall widths; open door intervals. Outside native floor polygons is forbidden."
+  },
+  "lights": {
+    "pass": true,
+    "enabled_shadow_casting_sources": 16
+  },
+  "packaging": {
+    "pass": true,
+    "embedded_instances_before": 100,
+    "unique_embedded_sprites": 11,
+    "bytes_before": 60555728,
+    "bytes_after": 5925093,
+    "external_asset_packs": [],
+    "absolute_source_paths": false
+  },
+  "save_reopen": {
+    "pass": true,
+    "objects": 100,
+    "walls": 14,
+    "mounted_doors": 2,
+    "lights": 16,
+    "object_transforms_layers_footprints_and_assets_preserved": true,
+    "wall_and_portal_geometry_preserved": true
+  },
+  "renders": {
+    "Embervault-Underhall-AI.png": {
+      "pixels": [
+        2112,
+        3840
+      ],
+      "sha256": "844d3807458af5eeeb46af63a72fb1ccd65d376b5a8abd6b7ae726cfccaa2831"
+    },
+    "Embervault-Underhall-AI-grid.png": {
+      "pixels": [
+        2112,
+        3840
+      ],
+      "sha256": "cca5c4f84fa9328af94462617a73db2eee3b2265cf2f4159652a6db45ce26a40"
+    }
+  },
+  "environment": {
+    "Dungeondraft": "1.2.0.1",
+    "Godot": "3.4.2",
+    "bridge_protocol": 18,
+    "date": "2026-10-05"
+  },
+  "asset_integrity": {
+    "pass": true,
+    "source_png_sha256_matches_manifest": true,
+    "embedded_rgba_pixels_match_imported_pngs": true,
+    "assets_verified": 11,
+    "note": "Native PNG recompression can change encoded file hashes without changing RGBA pixels."
+  }
+}
