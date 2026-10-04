@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import json
 import socket
+import threading
 
 
 class BridgeError(Exception):
     """Raised when the bridge is unreachable or returns an error response."""
+
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details
 
 
 class BridgeClient:
@@ -19,8 +24,45 @@ class BridgeClient:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self._request_lock = threading.RLock()
 
     def request(self, cmd: str, **params) -> dict:
+        from .spatial import needs_check
+        with self._request_lock:
+            if not needs_check(cmd, params):
+                return self._request(cmd, **params)
+            if not params.get('spatial_check', True):
+                result = self._request(cmd, **params)
+                result['spatial_validation'] = {'checked': False, 'reason': 'explicit_override'}
+                return result
+            scene, report = self.preflight(cmd, **params)
+            # UI edits or another bridge client between snapshot and mutation make
+            # this stamp stale. The mod refuses the edit rather than using old bounds.
+            result = self._request(cmd, **params, _spatial_stamp=scene['stamp'])
+            result['spatial_validation'] = {'checked': True, 'footprint': report['footprint']}
+            return result
+
+    def preflight(self, cmd: str, **params):
+        """Check without editing; composite tools can validate all parts first."""
+        from .spatial import check_mutation
+        with self._request_lock:
+            query = {}
+            if 'id' in params:
+                query['target_id'] = params['id']
+            if params.get('asset') and cmd in {'place_object', 'configure_object', 'draw_wall', 'modify_wall', 'draw_path'}:
+                query.update(asset=params['asset'], asset_category='Paths' if cmd=='draw_path' else 'Walls' if 'wall' in cmd else 'Objects')
+            if cmd == 'build_room' and params.get('wall_asset'):
+                query = {'asset': params['wall_asset'], 'asset_category': 'Walls'}
+            if cmd == 'import_image':
+                query = {'image_path': params['path']}
+            scene = self._request('spatial_snapshot', **query)
+            report = check_mutation(scene, cmd, params)
+            if not report['safe']:
+                raise BridgeError('Spatial validation rejected the edit: ' +
+                                  json.dumps(report, ensure_ascii=False), details=report)
+            return scene, report
+
+    def _request(self, cmd: str, **params) -> dict:
         payload = {"cmd": cmd, **params}
         data = (json.dumps(payload) + "\n").encode("utf-8")
 

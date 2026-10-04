@@ -300,3 +300,35 @@ JSON are the native save representation; do not replace them with base64 or arra
 
 Sources: installed Dungeondraft 1.2.0.1 runtime and
 https://megasploot.github.io/DungeondraftModdingAPI/reference/Header/ .
+
+## Protocol 18: spatial snapshots and guarded edits
+
+`spatial_snapshot` reads the current floor's object footprints, wall routes and
+thickness, portal approaches, map dimensions and session regions. Optional
+`asset` + `asset_category` or `image_path` adds candidate texture bounds;
+`target_id` identifies edits targeting another floor. Coordinates use world
+pixels. Bounds include native prop/sprite and parent transforms. Texture alpha
+is read from source pixels or saved embedded PNGs where possible, falling back
+to a conservative full rectangle when unavailable. Terrain raster padding and
+cave cell size account for brush quantization.
+
+The response contains a SHA-256 `stamp` of the current geometry, floor instance
+and regions. Python `BridgeClient.request` performs snapshot, geometric check,
+then forwards `_spatial_stamp` with the mutator. `_safe_dispatch` rebuilds the
+geometry and refuses a stale stamp **before** native editing. This check is not
+a geometry reservation or a general transaction. Source assets are expected to
+remain immutable during an editor session; texture bounds are cached.
+
+`set_spatial_region` accepts `name`, `kind` (`room`, `clearance`, `protected`) and
+`points`. `remove_spatial_region` accepts `name`. Python validates finite simple
+polygons. The mod stores zones and explicit object room assignments as floor/node
+metadata for the open-map session, not the saved-map format. Reapply on reopen.
+
+Python-only tools: `get_asset_footprint`, `check_object_placement`,
+`validate_layout`. Mutation failures include conflict codes/IDs; successful
+guarded results add `spatial_validation.checked=true`. High-level drawing tools
+expose `spatial_check` (default true). Object edits also expose `allow_overlap`
+where applicable. False disables the guard explicitly and labels the result as
+an override. Color-only edits do not need geometric checking. Raw TCP,
+native/UI/undo access can bypass the Python guard; callers must not treat these
+as protected mutation paths. See the READMEs for scope and limitations.

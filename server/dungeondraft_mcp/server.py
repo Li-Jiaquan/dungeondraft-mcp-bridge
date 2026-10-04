@@ -115,14 +115,27 @@ def place_object(
     rotation: float = 0.0,
     sorting: int = 0,
     color: str = "",
+    spatial_check: bool = True,
+    allow_overlap: bool = False,
+    wall_clearance: float = 0,
+    door_clearance: float = 128,
+    object_clearance: float = 0,
+    region: str = "",
 ) -> dict:
     """Place an object (prop) on the current map. Returns the new element id.
 
     asset: an Objects asset path from list_assets(category='Objects').
     x, y: woxel coordinates; defaults to map center. rotation: degrees.
     sorting: 0=over, 1=under. color: optional tint as '#rrggbb'.
+    Spatial checks default ON: rotated visible bounds must clear walls, doors and
+    objects. Use get_asset_footprint/check_object_placement first. region confines
+    furniture to a registered room. allow_overlap permits tabletop decor/canopies;
+    spatial_check=False is an explicit override for overlays/wall-mounted objects.
     """
     params = {"asset": asset, "scale": scale, "rotation": rotation, "sorting": sorting}
+    params.update(spatial_check=spatial_check, allow_overlap=allow_overlap,
+                  wall_clearance=wall_clearance, door_clearance=door_clearance,
+                  object_clearance=object_clearance, region=region)
     if x is not None:
         params["x"] = x
     if y is not None:
@@ -141,6 +154,7 @@ def draw_wall(
     type: int = 0,
     joint: int = 1,
     color: str = "",
+    spatial_check: bool = True,
 ) -> dict:
     """Draw a wall through a list of [x, y] woxel points. Returns the new element id.
 
@@ -148,7 +162,8 @@ def draw_wall(
     type: 0=auto, 1=manual, 2=cave. joint: 0=sharp, 1=bevel, 2=round.
     """
     return bridge.request(
-        "draw_wall", points=points, asset=asset, loop=loop, shadow=shadow, type=type, joint=joint, color=color
+        "draw_wall", points=points, asset=asset, loop=loop, shadow=shadow, type=type, joint=joint, color=color,
+        spatial_check=spatial_check
     )
 
 
@@ -160,13 +175,14 @@ def draw_path(
     sorting: int = 0,
     smoothness: Optional[float] = None,
     width: Optional[float] = None,
+    spatial_check: bool = True,
 ) -> dict:
     """Draw a path/road/river through a list of [x, y] woxel points. Returns the new element id.
 
     asset: a Paths asset path from list_assets(category='Paths').
     smoothness: optional curve smoothing. width: optional width scale multiplier.
     """
-    params = {"points": points, "asset": asset, "layer": layer, "sorting": sorting}
+    params = {"points": points, "asset": asset, "layer": layer, "sorting": sorting, "spatial_check": spatial_check}
     if smoothness is not None:
         params["smoothness"] = smoothness
     if width is not None:
@@ -322,6 +338,7 @@ def build_room(
     floor_slot: int = 1,
     wall_type: int = 0,
     wall_joint: int = 1,
+    spatial_check: bool = True,
 ) -> dict:
     """Build a room in one call: a looped wall AND a matching floor on the SAME path.
 
@@ -350,6 +367,7 @@ def build_room(
         "floor_slot": floor_slot,
         "wall_type": wall_type,
         "wall_joint": wall_joint,
+        "spatial_check": spatial_check,
     }
     if rect is not None:
         params["rect"] = rect
@@ -397,15 +415,15 @@ def add_text(
 # --------------------------------------------------------------------------
 
 @mcp.tool()
-def set_terrain_slot(asset: str, slot: int = 0) -> dict:
+def set_terrain_slot(asset: str, slot: int = 0, spatial_check: bool = True) -> dict:
     """Assign a Terrain asset to a terrain slot index so it can be filled/painted with that slot."""
-    return bridge.request("set_terrain_slot", asset=asset, slot=slot)
+    return bridge.request("set_terrain_slot", asset=asset, slot=slot, spatial_check=spatial_check)
 
 
 @mcp.tool()
-def fill_terrain(slot: int = 0, asset: str = "") -> dict:
+def fill_terrain(slot: int = 0, asset: str = "", spatial_check: bool = True) -> dict:
     """Flood-fill the whole current level with a terrain slot. If asset is given, it is assigned to the slot first."""
-    params = {"slot": slot}
+    params = {"slot": slot, "spatial_check": spatial_check}
     if asset:
         params["asset"] = asset
     return bridge.request("fill_terrain", **params)
@@ -418,6 +436,7 @@ def fill_region(
     slot: int = 0,
     asset: str = "",
     rate: float = 1.0,
+    spatial_check: bool = True,
 ) -> dict:
     """Fill only a region with a terrain slot (e.g. floor a single room), in woxel coords.
 
@@ -429,7 +448,7 @@ def fill_region(
     """
     if (rect is None) == (points is None):
         raise ValueError("provide exactly one of 'rect' or 'points'")
-    params: dict = {"slot": slot, "rate": rate}
+    params: dict = {"slot": slot, "rate": rate, "spatial_check": spatial_check}
     if rect is not None:
         params["rect"] = rect
     if points is not None:
@@ -447,6 +466,7 @@ def paint_terrain(
     radius: float = 64.0,
     rate: float = 1.0,
     asset: str = "",
+    spatial_check: bool = True,
 ) -> dict:
     """Paint a soft circular terrain brush of a slot at a woxel position.
 
@@ -455,7 +475,7 @@ def paint_terrain(
     to assign to the slot first (else set it with set_terrain_slot). Undoable.
     For a hard-edged region instead of a brush, use fill_region.
     """
-    params = {"slot": slot, "radius": radius, "rate": rate}
+    params = {"slot": slot, "radius": radius, "rate": rate, "spatial_check": spatial_check}
     if x is not None:
         params["x"] = x
     if y is not None:
@@ -472,6 +492,7 @@ def paint_path(
     radius: float = 96.0,
     rate: float = 1.0,
     asset: str = "",
+    spatial_check: bool = True,
 ) -> dict:
     """Paint a continuous terrain stroke (a road/trail) along a polyline in one call.
 
@@ -485,7 +506,7 @@ def paint_path(
     soft falloff to the edges so it blends. asset: optional Terrain asset to
     assign to the slot first (else set it with set_terrain_slot). Undoable.
     """
-    params = {"points": points, "slot": slot, "radius": radius, "rate": rate}
+    params = {"points": points, "slot": slot, "radius": radius, "rate": rate, "spatial_check": spatial_check}
     if asset:
         params["asset"] = asset
     return bridge.request("paint_path", **params)
@@ -499,6 +520,7 @@ def dig_cave(
     ground_color: str = "",
     wall_color: str = "",
     texture: str = "",
+    spatial_check: bool = True,
 ) -> dict:
     """Carve a cave along a path with the Cave Brush (the dig/blast tool).
 
@@ -513,7 +535,7 @@ def dig_cave(
     ("#rrggbb" or [r,g,b]). texture: optional Caves floor asset (see
     list_assets(category="Caves")). The mesh rebuilds automatically.
     """
-    params = {"points": points, "radius": radius, "dig": dig}
+    params = {"points": points, "radius": radius, "dig": dig, "spatial_check": spatial_check}
     if ground_color:
         params["ground_color"] = ground_color
     if wall_color:
@@ -524,14 +546,14 @@ def dig_cave(
 
 
 @mcp.tool()
-def clear_caves() -> dict:
+def clear_caves(spatial_check: bool = True) -> dict:
     """Wipe the entire cave layer back to solid rock.
 
     Removes all carved caves at once (the whole cave system), rebuilding the
     mesh. Undoable like dig_cave. Use this instead of filling regions back with
     dig_cave(dig=False) when you want to reset all caves.
     """
-    return bridge.request("clear_caves")
+    return bridge.request("clear_caves", spatial_check=spatial_check)
 
 
 # --------------------------------------------------------------------------
@@ -539,9 +561,15 @@ def clear_caves() -> dict:
 # --------------------------------------------------------------------------
 
 @mcp.tool()
-def move_element(id: int, x: float, y: float) -> dict:
-    """Move any element to a new woxel position by id."""
-    return bridge.request("move_element", id=id, x=x, y=y)
+def move_element(id: int, x: float, y: float, spatial_check: bool = True,
+                 allow_overlap: bool = False, wall_clearance: float = 0,
+                 door_clearance: float = 128, object_clearance: float = 0,
+                 region: str = "") -> dict:
+    """Move an element. Props are checked BEFORE moving; rejection leaves them unchanged.
+    allow_overlap allows decor/canopies while retaining wall/door checks. Non-props
+    such as lights are not subject to furniture rules. region is a registered room.
+    """
+    return bridge.request("move_element", **locals())
 
 
 @mcp.tool()
@@ -551,9 +579,17 @@ def modify_object(
     rotation: Optional[float] = None,
     color: str = "",
     shadow: Optional[bool] = None,
+    spatial_check: bool = True,
+    allow_overlap: bool = False,
+    wall_clearance: float = 0,
+    door_clearance: float = 128,
+    object_clearance: float = 0,
+    region: str = "",
 ) -> dict:
     """Modify an existing object's scale, rotation (degrees), color ('#rrggbb') and/or shadow flag by id."""
-    params: dict = {"id": id}
+    params: dict = {"id": id, "spatial_check": spatial_check, "allow_overlap": allow_overlap,
+                   "wall_clearance": wall_clearance, "door_clearance": door_clearance,
+                   "object_clearance": object_clearance, "region": region}
     if scale is not None:
         params["scale"] = scale
     if rotation is not None:
@@ -566,9 +602,14 @@ def modify_object(
 
 
 @mcp.tool()
-def duplicate_object(id: int, dx: float = 64.0, dy: float = 0.0) -> dict:
-    """Duplicate an object by id, offset by (dx, dy) woxels. Returns the new element id."""
-    return bridge.request("duplicate_object", id=id, dx=dx, dy=dy)
+def duplicate_object(id: int, dx: float = 64.0, dy: float = 0.0,
+                     spatial_check: bool = True, allow_overlap: bool = False,
+                     wall_clearance: float = 0, door_clearance: float = 128,
+                     object_clearance: float = 0, region: str = "") -> dict:
+    """Duplicate a prop. Destination is checked before creation (including against
+    the source). A blocked clone leaves no new object. Offset is in world pixels.
+    """
+    return bridge.request("duplicate_object", **locals())
 
 
 @mcp.tool()
@@ -723,6 +764,8 @@ def redo() -> dict:
 
 from .extended import register as register_extended
 register_extended(mcp, bridge)
+from .spatial import register as register_spatial
+register_spatial(mcp, bridge)
 
 
 def main() -> None:

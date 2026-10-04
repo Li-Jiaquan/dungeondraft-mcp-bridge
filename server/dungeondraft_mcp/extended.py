@@ -95,12 +95,15 @@ def register(mcp, bridge):
     @mcp.tool()
     def import_image(path: str, x: float | None = None, y: float | None = None,
                      scale: float = 1, rotation: float = 0, layer: int = 100,
-                     shadow: bool = False) -> dict:
+                     shadow: bool = False, spatial_check: bool = True,
+                     allow_overlap: bool = False, region: str = '') -> dict:
         """Embed a local PNG into the map as an editable prop, including generated images.
 
         Preserves transparency. File is embedded so a saved map does not depend on the
         original path. 256 image pixels equal one tile at scale=1. Whole-map images
         remain one prop, without automatic conversion to walls/terrain.
+        Spatial checks default on. Use spatial_check=False deliberately for a
+        whole-map background or decorative overlay; ordinary props should be checked.
         """
         p = Path(path).expanduser().resolve(strict=True)
         if p.suffix.lower() != '.png' or scale <= 0:
@@ -109,6 +112,7 @@ def register(mcp, bridge):
             if img.format != 'PNG' or max(img.size)>16384: raise ValueError('PNG dimensions must be at most 16384 pixels')
             img.load()
         params = dict(path=p.as_posix(), scale=scale, rotation=rotation, layer=layer, shadow=shadow)
+        params.update(spatial_check=spatial_check,allow_overlap=allow_overlap,region=region)
         if (x is None) != (y is None): raise ValueError('Supply both x and y')
         if x is not None: params.update(x=x, y=y)
         # Native EmbedObject caches by filename. A unique temporary path prevents
@@ -271,13 +275,14 @@ def register(mcp, bridge):
 
     @mcp.tool()
     def configure_object(id: int, mirror: bool | None = None, block_light: bool | None = None,
-                         layer: int | None = None, asset: str | None = None) -> dict:
+                         layer: int | None = None, asset: str | None = None,
+                         spatial_check: bool = True, allow_overlap: bool = False) -> dict:
         """Set object mirroring, lighting occlusion, draw layer and texture."""
         return bridge.request('configure_object', **{k:v for k,v in locals().items() if v is not None and k != 'bridge'})
 
     @mcp.tool()
     def draw_water(points: list[list[float]] | None = None, rect: list[float] | None = None,
-                   erase: bool = False) -> dict:
+                   erase: bool = False, spatial_check: bool = True) -> dict:
         """Draw/erase a lake or river polygon/rectangle with native shore borders."""
         _shape(points, rect)
         return bridge.request('draw_water', **{k:v for k,v in locals().items() if v is not None and k != 'bridge'})
@@ -294,7 +299,7 @@ def register(mcp, bridge):
     @mcp.tool()
     def draw_material(asset: str, points: list[list[float]] | None = None,
                       rect: list[float] | None = None, layer: int = 100,
-                      smooth: bool = True, erase: bool = False) -> dict:
+                      smooth: bool = True, erase: bool = False, spatial_check: bool = True) -> dict:
         """Draw/erase a native material polygon, with its styled border, on a drawing layer."""
         _shape(points, rect)
         return bridge.request('draw_material', **{k:v for k,v in locals().items() if v is not None and k != 'bridge'})
@@ -308,7 +313,8 @@ def register(mcp, bridge):
     @mcp.tool()
     def modify_wall(id: int, asset: str | None = None, color: str | None = None,
                     shadow: bool | None = None, points: list[list[float]] | None = None,
-                    loop: bool | None = None, type: int | None = None, joint: int | None = None) -> dict:
+                    loop: bool | None = None, type: int | None = None, joint: int | None = None,
+                    spatial_check: bool = True) -> dict:
         """Change an existing wall's texture, tint, shadow or geometry."""
         return bridge.request('modify_wall', **{k:v for k,v in locals().items() if v is not None and k != 'bridge'})
 
@@ -364,7 +370,7 @@ def register(mcp, bridge):
     @mcp.tool()
     def draw_elevation(points: list[list[float]], cliff_asset: str,
                        terrain_asset: str = '', slot: int = 1,
-                       layer: int = 100, width: float = 1) -> dict:
+                       layer: int = 100, width: float = 1, spatial_check: bool = True) -> dict:
         """Draw a raised plateau: a terrain-filled polygon plus a CLOSED cliff path.
 
         cliff_asset must be a loaded Paths asset chosen with list_assets; width controls
@@ -378,23 +384,33 @@ def register(mcp, bridge):
         # Validate assets BEFORE painting so a missing cliff does not leave partial terrain.
         assets = bridge.request('list_assets', category='Paths', search=cliff_asset, limit=1)['assets']
         if cliff_asset not in assets: raise ValueError('cliff_asset must be an available Paths asset')
+        route = points if points[0] == points[-1] else [*points, points[0]]
+        # A cliff's width can reach a protected region even when its fill does not.
+        # Preflight both pieces before any terrain is changed; each edit also
+        # rechecks immediately before committing. This is not an atomic transaction.
+        if spatial_check:
+            bridge.preflight('draw_path', points=route, asset=cliff_asset, width=width, smoothness=0)
+            if terrain_asset:
+                bridge.preflight('fill_region', points=points, slot=slot, asset=terrain_asset)
         result = {}
         if terrain_asset:
             available = bridge.request('list_assets', category='Terrain', search=terrain_asset, limit=1)['assets']
             if terrain_asset not in available: raise ValueError('Terrain asset unavailable')
-            result['terrain'] = bridge.request('fill_region', points=points, slot=slot, asset=terrain_asset)
-        route = points if points[0] == points[-1] else [*points, points[0]]
-        result['cliff'] = bridge.request('draw_path', points=route, asset=cliff_asset, layer=layer, width=width)
+            result['terrain'] = bridge.request('fill_region', points=points, slot=slot, asset=terrain_asset, spatial_check=spatial_check)
+        result['cliff'] = bridge.request('draw_path', points=route, asset=cliff_asset, layer=layer, width=width, smoothness=0, spatial_check=spatial_check)
         result['native_3d_heightmap'] = False
         return result
 
     @mcp.tool()
     def scatter_objects(asset: str, rect: list[float], count: int = 20,
                          seed: int = 0, min_scale: float = .8, max_scale: float = 1.2,
-                         layer: int = 100) -> dict:
+                         layer: int = 100, allow_overlap: bool = False,
+                         spatial_check: bool = True, region: str = '') -> dict:
         """Place deterministic random props in a rectangular region (vegetation/debris).
 
-        Returns every created id, plus any partial failure. Individual placements are undoable.
+        Blocked candidates are resampled up to count*20 attempts. Returns every created
+        id and skipped count, including partial failure. allow_overlap permits canopies.
+        Individual placements are undoable. No furniture is forced into occupied space.
         """
         _shape(None, rect)
         if not 1 <= count <= 200 or not 0 < min_scale <= max_scale: raise ValueError('Invalid scatter settings')
@@ -405,17 +421,27 @@ def register(mcp, bridge):
         if asset not in bridge.request('list_assets', category='Objects', search=asset, limit=1)['assets']:
             raise ValueError('Object asset unavailable')
         error = None
-        for _ in range(count):
+        skipped=0
+        attempts=0
+        for _ in range(count*20):
+            if len(ids)>=count: break
+            attempts+=1
             try:
                 made = bridge.request('place_object', asset=asset, x=rect[0]+rng.random()*rect[2],
                                       y=rect[1]+rng.random()*rect[3], rotation=rng.uniform(0,360),
-                                      scale=rng.uniform(min_scale,max_scale))
+                                      scale=rng.uniform(min_scale,max_scale),spatial_check=spatial_check,
+                                      allow_overlap=allow_overlap,region=region)
                 ids.append(made['id'])
                 bridge.request('set_element_layer', id=made['id'], layer=layer)
             except BridgeError as exc:
+                if exc.details is not None:
+                    skipped+=1
+                    continue
                 error = str(exc)
                 break
-        return {'ids':ids,'seed':seed,'completed':len(ids),'requested':count,'error':error}
+        if len(ids)<count and error is None: error='Insufficient clear space within the attempt budget'
+        return {'ids':ids,'seed':seed,'completed':len(ids),'requested':count,'error':error,
+                'attempts':attempts,'skipped_collisions':skipped}
 
 
 def _shape(points, rect):

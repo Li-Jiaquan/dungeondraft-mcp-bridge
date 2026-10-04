@@ -68,6 +68,21 @@ class ExtendedTests(unittest.TestCase):
             self.tools['draw_water'](points=[[0,0],[256,0],[0,float('nan')]])
         self.assertEqual(self.bridge.calls, [])
 
+    def test_cliff_collision_is_checked_before_any_terrain_fill(self):
+        def request(cmd,**params):
+            self.bridge.calls.append((cmd,params))
+            if cmd=='list_layers': return {'layers':{'100':'Objects'}}
+            if cmd=='configure_terrain': return {'expanded':True}
+            if cmd=='list_assets': return {'assets':['cliff.png','terrain.png']}
+            return {}
+        def preflight(cmd,**params):
+            self.bridge.calls.append(('preflight:'+cmd,params))
+            raise BridgeError('fixture cliff collision',details={'safe':False})
+        self.bridge.request=request; self.bridge.preflight=preflight
+        with self.assertRaises(BridgeError):
+            self.tools['draw_elevation']([[0,0],[256,0],[0,256]],'cliff.png','terrain.png')
+        self.assertFalse(any(cmd in ('fill_region','draw_path') for cmd,p in self.bridge.calls))
+
     def test_seeded_scatter_is_repeatable(self):
         self.tools['scatter_objects']('tree.png', [0,0,512,512], count=3, seed=7)
         first = [p for c,p in self.bridge.calls if c=='place_object']

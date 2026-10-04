@@ -29,9 +29,70 @@ The mod opens a TCP server inside Dungeondraft and polls it every frame from the
 forwards calls as JSON. See [PROTOCOL.md](PROTOCOL.md) for the wire format.
 
 > **Status: working.** Confirmed end-to-end against Dungeondraft on **Godot
-> 3.4.2** — raw TCP from the modding sandbox works. Version 0.2 exposes 71 tools
+> 3.4.2** — raw TCP from the modding sandbox works. Version 0.3 exposes 76 tools
 > across query / create / modify / terrain / levels / selection / capture /
 > camera / undo (see below).
+
+## Version 0.3: spatial validation
+
+Furniture edits now check the **whole rotated footprint** before changing the map.
+The checks cover walls (including their thickness), doorway approaches, other
+objects, map boundaries, named rooms and reserved corridors. Drawing a wall
+through existing furniture is also refused. Placement, PNG import, movement,
+rotation, scale, duplication and texture/mirror changes use the same guard.
+
+Five tools help plan and review a layout:
+
+| Tool | Purpose |
+| --- | --- |
+| `get_asset_footprint` | Read actual asset dimensions and visible bounds before choosing scale. |
+| `check_object_placement` | Preview a placement without editing. |
+| `validate_layout` | Audit the current floor and return conflicting element IDs. |
+| `set_spatial_region` | Register a `room`, `clearance` corridor, or `protected` terrain zone. |
+| `remove_spatial_region` | Remove a registered zone. |
+
+Use world pixels (256 per tile). Define room polygons **inside** the walls and
+pass `region="tavern"` when placing its furniture; the entire footprint must fit.
+Reserve circulation with `kind="clearance"`. Mark finished buildings or banks
+with `kind="protected"` before painting terrain, caves, water, materials or
+paths. Brush radius, cliff width and raster rounding count toward protection.
+Whole-floor fills and terrain slot texture replacements are refused while a
+protected zone exists because they can change previously painted areas too.
+
+```python
+set_spatial_region(name="tavern", kind="room",
+                   points=[[1000,1000],[2500,1000],[2500,2000],[1000,2000]])
+get_asset_footprint(asset="<Objects asset from list_assets>")
+check_object_placement(asset="<Objects asset>", x=1700, y=1500,
+                       scale=0.5, region="tavern")
+place_object(asset="<Objects asset>", x=1700, y=1500,
+             scale=0.5, region="tavern")
+validate_layout()
+```
+
+`allow_overlap=True` permits intentional object stacking (tabletop decoration,
+tree canopies), while still checking walls, doors and zones. `spatial_check=False`
+is an explicit override for exceptional art placements such as a wall ornament
+or a whole-map image; it must not be an automatic retry after a rejection.
+Scatter resamples blocked positions instead of forcing them into occupied space.
+Composite plateau tools preflight the cliff and fill before painting; these and
+batches remain non-atomic if another operation or native failure interrupts them.
+
+Checks use alpha-trimmed, rotated rectangles; unreadable alpha falls back to the
+full texture bounds. Irregular silhouettes and U-shaped furniture can therefore
+produce conservative false positives. Doors are recognized by asset names;
+custom windows may need an explicit clearance choice. This is a 2D layout guard,
+not an art judge, navigation solver or 3D physics/light simulator. Existing
+cave/water topology, moved paths/materials, roofs and native/UI/undo operations
+are not automatically validated. Terrain protection requires explicit zones.
+Water/material decorative borders and smoothing are not measured; enlarge
+protected zones to leave a visual buffer. Cave style changes are floor-wide.
+
+Regions and room assignments belong to the **current floor of the open map
+session**, survive MCP reconnects, and must be reapplied after reopening a saved
+map. Every guarded edit takes a fresh snapshot; protocol 18 rejects the mutation
+inside Dungeondraft if the geometry changes before commit. Update both halves
+and reconnect the MCP client to refresh its tools.
 
 ## Version 0.2 additions
 
@@ -87,7 +148,7 @@ list, and reload the mod in Dungeondraft. Handles expire on mod/map reload. The
 bridge shares its socket through the scene root and transfers ownership to the
 new mod instance, avoiding a stranded listener after opening another map.
 
-Verified on Dungeondraft 1.2.0.1: MCP stdio discovery (71 tools), transparent PNG
+Verified on Dungeondraft 1.2.0.1: the original 71 tools, transparent PNG
 embedding including temporary-source cleanup, terrain slots 5/undo/redo, ambient
 and individual lights, water, materials, floor/layer management, native sliders
 and a deferred Cancel button, cliffs/scatter, walls/doors/roofs/caves/text,
@@ -96,6 +157,12 @@ ignoring regenerated water reference identifiers and empty material-layer lists.
 Native API/UI access does not mean every possible operation has been tested.
 
 Offline regression checks: `python -m unittest discover -s tests -v`.
+Version 0.3 passed 30 offline regression tests and 28 live spatial checks on
+Dungeondraft 1.2.0.1, with 76 tools discovered through MCP stdio. All five spatial
+tools were called through MCP. Rejected prop/wall edits preserved the geometry
+snapshot; rejected terrain/cave/water edits also preserved native drawing data.
+Tests included stale snapshot refusal, image alpha bounds, texture replacement,
+mirroring and duplication, and finished by reopening the original saved map.
 
 ## What the AI can do
 
@@ -145,7 +212,7 @@ Claude Desktop). On Windows, `python`/`.venv\Scripts\` replace the `python3`/
 On load you should see in the Dungeondraft log:
 
 ```
-[mcp-bridge] ready, protocol 17
+[mcp-bridge] ready, protocol 18
 ```
 
 ### 2. Install the MCP server

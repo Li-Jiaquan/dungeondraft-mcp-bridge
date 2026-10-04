@@ -33,6 +33,25 @@ blindly.
 - The bridge keeps its **own** `undo` / `redo` stacks (independent of DD's
   Ctrl+Z). `delete_element` is **not** undoable.
 
+## Spatial planning (protocol 18+)
+
+Read `get_asset_footprint` before choosing furniture scale. Use the whole rotated
+footprint, not the center point. Define interior `room` polygons and pass their
+names as `region`; reserve passages with `clearance`, and protect completed
+buildings/banks with `protected` before terrain, cave, water or path edits.
+Reapply these regions after a saved map is reopened; they are session metadata.
+Use `check_object_placement` before costly work and `validate_layout` on each
+floor after furnishing, followed by an exported visual inspection.
+
+A rejected edit has not changed the map. Read its conflicts, choose a smaller
+asset, change position/rotation/scale, or revise the layout. Never automatically
+set `spatial_check=False` to make a rejected edit succeed. `allow_overlap=True`
+is appropriate for explicitly intended tabletop decor or canopies; walls,
+doorways and zones still apply. Full overrides are for deliberately overlapping
+art such as wall ornaments or full-map images. Conservative rectangles can
+over-report irregular silhouettes; inspect before overriding. Native/UI/undo
+edits bypass these checks, and floor geometry does not model real 3D physics.
+
 ## Editing the bridge itself
 
 If you change code (not just drive the map), the two halves reload differently:

@@ -21,7 +21,7 @@ var script_class = "tool"
 
 const HOST := "127.0.0.1"
 const PORT := 8787
-const PROTOCOL_VERSION := 17
+const PROTOCOL_VERSION := 18
 
 # Commands that get wrapped in a Dungeondraft undo record (see _record_and_dispatch).
 const CREATE_CMDS := [
@@ -150,6 +150,10 @@ func _record_and_dispatch(req : Dictionary) -> Dictionary:
 
 	var result = _safe_dispatch(req)
 	if typeof(result) == TYPE_DICTIONARY and result.get("ok", false):
+		if cmd in ["place_object", "import_image", "move_element", "modify_object", "duplicate_object"] and str(req.get("region", "")) != "":
+			var placed_id = result.result.get("id", -1)
+			var placed_node = Global.World.GetNodeByID(int(placed_id))
+			if placed_node != null: placed_node.set_meta("dd_mcp_spatial_room", str(req.region))
 		var op = _build_op(cmd, req, result, pre, terrain_before, cave_before)
 		if op != null:
 			_undo_stack.append(op)
@@ -307,7 +311,15 @@ func _snapshot(node) -> Dictionary:
 # Dispatch with a guard so a bad command can never take down the TCP loop.
 func _safe_dispatch(req : Dictionary) -> Dictionary:
 	var cmd = req.get("cmd", "")
+	if req.has("_spatial_stamp"):
+		var current = _spatial_scene()
+		if not current.ok: return current
+		if str(req._spatial_stamp) != str(current.result.stamp):
+			return _err("Spatial snapshot changed before edit; inspect and retry. No edit performed.")
 	match cmd:
+		"spatial_snapshot": return _spatial_snapshot(req)
+		"set_spatial_region": return _spatial_region(req, false)
+		"remove_spatial_region": return _spatial_region(req, true)
 		"native_describe": return _native_describe(req)
 		"native_get": return _native_get(req)
 		"native_call": return _native_call(req)
@@ -1554,6 +1566,9 @@ func _duplicate_object(req : Dictionary) -> Dictionary:
 	prop.position = src.position + Vector2(float(req.get("dx", 64.0)), float(req.get("dy", 0.0)))
 	prop.scale = src.scale
 	prop.rotation = src.rotation
+	if src.get("Mirror") != null: prop.set("Mirror", bool(src.get("Mirror")))
+	for key in ["dd_mcp_alpha_rect", "dd_mcp_spatial_room"]:
+		if src.has_meta(key): prop.set_meta(key, src.get_meta(key))
 	if Global.Editor.Tools.has("ObjectTool"):
 		Global.Editor.Tools["ObjectTool"].Record(prop)
 	elif level.Objects.has_method("AddToSearchTable"):
@@ -1949,6 +1964,178 @@ func _ensure_icon() -> String:
 		img.save_png(path)
 	return path
 
+
+# Geometry is captured from the LIVE floor. Python checks proposals, and the
+# dispatch stamp above makes snapshot-check-commit fail closed if anything moves.
+var _spatial_alpha_cache := {}
+var _spatial_embedded_file := ""
+var _spatial_embedded_data := {}
+
+func _spatial_alpha_rect(tex) -> Rect2:
+	var key = str(tex.get_instance_id()) + ":" + str(tex.resource_path)
+	if _spatial_alpha_cache.has(key): return _spatial_alpha_cache[key]
+	var result = Rect2(Vector2(), tex.get_size())
+	# Some DD renderers cannot read alpha back from GPU textures. Prefer the
+	# source pixels, including PNG data embedded in a reopened map.
+	var image = Image.new()
+	var source = str(tex.resource_path)
+	if source.begins_with("embedded://"): source = source.substr(11)
+	if image.load(source) != OK:
+		if str(tex.resource_path).begins_with("embedded://"):
+			var map_file = str(Global.Editor.CurrentMapFile)
+			if map_file != _spatial_embedded_file or not _spatial_embedded_data.has(source):
+				_spatial_embedded_file = map_file
+				_spatial_embedded_data = {}
+				var file = File.new()
+				if file.open(map_file, File.READ) == OK:
+					var parsed = JSON.parse(file.get_as_text())
+					file.close()
+					if parsed.error == OK and typeof(parsed.result) == TYPE_DICTIONARY:
+						_spatial_embedded_data = parsed.result.get("world", {}).get("embedded", {})
+			if _spatial_embedded_data.has(source):
+				image.load_png_from_buffer(Marshalls.base64_to_raw(str(_spatial_embedded_data[source].get("data", ""))))
+		if image.empty(): image = tex.get_data()
+	if image != null and not image.empty():
+		if image.is_compressed():
+			if image.decompress() != OK:
+				_spatial_alpha_cache[key] = result
+				return result
+		result = image.get_used_rect()
+	# Bound cache growth during long editor sessions with many custom assets.
+	if _spatial_alpha_cache.size() > 4096: _spatial_alpha_cache.clear()
+	_spatial_alpha_cache[key] = result
+	return result
+
+func _spatial_corners(rect : Rect2) -> Array:
+	return [rect.position, rect.position + Vector2(rect.size.x, 0), rect.end, rect.position + Vector2(0, rect.size.y)]
+
+func _spatial_matrix(node) -> Array:
+	var t = Transform2D()
+	if node is Node2D: t = node.global_transform
+	return [t.x.x, t.x.y, t.y.x, t.y.y, t.origin.x, t.origin.y]
+
+func _spatial_object(node):
+	var sprite = _native_read(node, "Sprite")
+	var tex = _native_read(node, "Texture")
+	if not sprite is Sprite or tex == null or not tex is Texture: return null
+	var used = _spatial_alpha_rect(tex)
+	if node.has_meta("dd_mcp_alpha_rect"): used = node.get_meta("dd_mcp_alpha_rect")
+	var size = tex.get_size()
+	if size.x <= 0 or size.y <= 0: return null
+	var draw = sprite.get_rect()
+	if sprite.flip_h: used.position.x = size.x - used.end.x
+	if sprite.flip_v: used.position.y = size.y - used.end.y
+	var trimmed = Rect2(draw.position + used.position * draw.size / size, used.size * draw.size / size)
+	var local := []
+	var world := []
+	for point in _spatial_corners(trimmed):
+		local.append(_vec(sprite.transform.xform(point)))
+		world.append(_vec(sprite.global_transform.xform(point)))
+	return {"id": _id(node), "asset": tex.resource_path, "position": _vec(node.position),
+		"scale": _vec(node.scale), "rotation": rad2deg(node.rotation), "mirror": bool(_native_read(node, "Mirror")),
+		"layer": node.z_index, "local_polygon": local, "polygon": world,
+		"parent_transform": _spatial_matrix(node.get_parent()), "empty": used.size.length() == 0,
+		"region": node.get_meta("dd_mcp_spatial_room") if node.has_meta("dd_mcp_spatial_room") else ""}
+
+func _spatial_wall_width(tex) -> float:
+	if tex == null or not tex is Texture: return 32.0
+	return max(1.0, _spatial_alpha_rect(tex).size.y * 0.5)
+
+func _spatial_scene() -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var objects := []
+	var missing := []
+	for node in lvl.Objects.get_children():
+		var object = _spatial_object(node)
+		if object == null: missing.append(_id(node))
+		elif not object.empty: objects.append(object)
+	var walls := []
+	var portals := []
+	for wall in lvl.Walls.get_children():
+		var raw = _native_read(wall, "Points")
+		if raw == null or raw.size() < 2: continue
+		var route := []
+		var local_route := []
+		for point in raw:
+			route.append(_vec(wall.global_transform.xform(point)))
+			local_route.append(_vec(point))
+		var tex = _native_read(wall, "Texture")
+		walls.append({"id": _id(wall), "points": route, "loop": bool(_native_read(wall, "Loop")),
+			"half_width": _spatial_wall_width(tex) * max(abs(wall.scale.x), abs(wall.scale.y)),
+			"position": _vec(wall.position), "local_points": local_route, "scale": _vec(wall.scale),
+			"rotation": rad2deg(wall.rotation), "parent_transform": _spatial_matrix(wall.get_parent())})
+		var mounts = _native_read(wall, "Portals")
+		if mounts == null: continue
+		for portal in mounts:
+			var d = _describe_wall_portal(portal, wall)
+			var normal = Vector2(d.normal[0], d.normal[1])
+			d["tangent"] = _vec(Vector2(normal.y, -normal.x))
+			d["radius"] = float(d.get("radius", 128.0))
+			d["window"] = str(d.get("asset", "")).to_lower().find("window") != -1
+			portals.append(d)
+	var regions = lvl.get_meta("dd_mcp_spatial_regions") if lvl.has_meta("dd_mcp_spatial_regions") else []
+	var scene = {"floor_id": lvl.ID, "floor_instance": lvl.get_instance_id(), "dimensions": _vec(Global.World.WoxelDimensions),
+		"objects": objects, "walls": walls, "portals": portals, "regions": regions,
+		"unsupported_objects": missing, "object_parent_transform": _spatial_matrix(lvl.Objects)}
+	var default_texture = _native_read(Global.Editor.Tools.get("WallTool", null), "Texture")
+	scene["default_wall_half_width"] = _spatial_wall_width(default_texture)
+	var pixel_x = Global.World.WoxelDimensions.x / max(float(lvl.Terrain.width), 1.0)
+	var pixel_y = Global.World.WoxelDimensions.y / max(float(lvl.Terrain.height), 1.0)
+	scene["terrain_raster_padding"] = Vector2(pixel_x, pixel_y).length()
+	var cave = _cave_mesh()
+	scene["cave_cell_size"] = float(cave.call("get_CellSize")) if cave != null and cave.has_method("get_CellSize") else 64.0
+	scene["stamp"] = JSON.print(scene).sha256_text()
+	return _ok(scene)
+
+func _spatial_snapshot(req : Dictionary) -> Dictionary:
+	var result = _spatial_scene()
+	if not result.ok: return result
+	if req.has("target_id"):
+		var node = Global.World.GetNodeByID(int(req.target_id))
+		result.result["target_kind"] = _describe(node).get("kind", "unknown") if node != null else "missing"
+	var tex = null
+	if req.has("image_path"):
+		var image = Image.new()
+		if image.load(str(req.image_path)) != OK: return _err("could not read image footprint")
+		tex = ImageTexture.new()
+		tex.create_from_image(image)
+		_spatial_alpha_cache[str(tex.get_instance_id()) + ":" + str(tex.resource_path)] = image.get_used_rect()
+	elif req.has("asset"):
+		tex = _asset_tex(str(req.get("asset_category", "Objects")), req.asset)
+		if tex == null: return _err("could not load asset footprint")
+	if tex != null:
+		var used = _spatial_alpha_rect(tex)
+		var local := []
+		for point in _spatial_corners(Rect2(used.position - tex.get_size()*0.5, used.size)): local.append(_vec(point))
+		result.result["asset"] = {"width": tex.get_width(), "height": tex.get_height(),
+			"local_polygon": local, "half_width": _spatial_wall_width(tex), "empty": used.size.length() == 0}
+	return result
+
+func _spatial_region(req : Dictionary, remove : bool) -> Dictionary:
+	var lvl = Global.World.GetCurrentLevel()
+	if lvl == null: return _err("no map open")
+	var name = str(req.get("name", ""))
+	if name.strip_edges() == "" or name.length() > 100: return _err("invalid spatial region name")
+	var regions = lvl.get_meta("dd_mcp_spatial_regions") if lvl.has_meta("dd_mcp_spatial_regions") else []
+	var out := []
+	for r in regions:
+		if r.name != name: out.append(r)
+	if not remove:
+		var kind = str(req.get("kind", "clearance"))
+		if not kind in ["room", "clearance", "protected"]: return _err("invalid spatial region kind")
+		var polygon = _points(req.get("points", []))
+		if polygon.size() < 3: return _err("region needs at least 3 points")
+		var packed := []
+		for p in polygon: packed.append(_vec(p))
+		out.append({"name": name, "kind": kind, "points": packed})
+	lvl.set_meta("dd_mcp_spatial_regions", out)
+	if remove:
+		for node in lvl.Objects.get_children():
+			if node.has_meta("dd_mcp_spatial_room") and node.get_meta("dd_mcp_spatial_room") == name:
+				node.remove_meta("dd_mcp_spatial_room")
+	return _ok({"regions": out, "scope": "current floor; open map session"})
+
 # Runtime access to Dungeondraft's installed API. No eval, executable launch,
 # or arbitrary scene-tree roots. Version-specific methods are discovered first.
 var _native_handles := {}
@@ -2230,6 +2417,10 @@ func _import_image(req : Dictionary) -> Dictionary:
 	prop.rotation = deg2rad(float(req.get("rotation", 0.0)))
 	prop.z_index = layer
 	prop.HasShadow = bool(req.get("shadow", false))
+	var source_image = Image.new()
+	if source_image.load(path) == OK:
+		prop.set_meta("dd_mcp_alpha_rect", source_image.get_used_rect())
+		_spatial_alpha_cache[str(prop.Texture.get_instance_id()) + ":" + str(prop.Texture.resource_path)] = source_image.get_used_rect()
 	var nid = _id(prop)
 	return _ok({ "id": nid, "embedded": true, "image_size": [prop.Texture.get_width(), prop.Texture.get_height()], "layer": layer, "position": _vec(prop.position), "scale": s })
 
@@ -2384,6 +2575,7 @@ func _configure_object(req : Dictionary) -> Dictionary:
 		var tex = _asset_tex("Objects", req.asset)
 		if tex == null or not node.has_method("SetTexture"): return _err("object texture unavailable")
 		node.call("SetTexture", tex)
+		if node.has_meta("dd_mcp_alpha_rect"): node.remove_meta("dd_mcp_alpha_rect")
 	return _ok({ "id": int(req.id), "layer": node.z_index, "mirror": node.get("Mirror"), "block_light": node.get("BlockLight") })
 
 func _modify_text(req : Dictionary) -> Dictionary:
