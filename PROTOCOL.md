@@ -162,6 +162,10 @@ and capture commands are not recorded. This stack is independent of the user's
 Ctrl+Z in Dungeondraft.
 
 `color` accepts `"#rrggbb"` / `"rrggbb"` or `[r,g,b]` / `[r,g,b,a]` floats 0..1.
+The Python client also accepts `#rrggbbaa` and sends explicit RGBA components:
+Godot 3 parses raw eight-digit strings as `#aarrggbb`. Public top-level color
+results are converted back to `#rrggbbaa`; native inspection and saved-map data
+retain Godot's format. Direct TCP callers should send arrays for alpha colors.
 `type` for walls: 0=auto,1=manual,2=cave; for roofs: 0=gable,1=hip,2=dormer.
 
 ## Implementation notes

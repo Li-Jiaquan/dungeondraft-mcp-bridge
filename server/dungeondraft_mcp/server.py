@@ -127,6 +127,8 @@ def place_object(
     asset: an Objects asset path from list_assets(category='Objects').
     x, y: woxel coordinates; defaults to map center. rotation: degrees.
     sorting: 0=over, 1=under. color: optional tint as '#rrggbb'.
+    Draw order still matters: use set_element_layer above the floor (e.g. 150
+    if available) when a floor at 100 would cover the default object layer.
     Spatial checks default ON: rotated visible bounds must clear walls, doors and
     objects. Use get_asset_footprint/check_object_placement first. region confines
     furniture to a registered room. allow_overlap permits tabletop decor/canopies;
@@ -202,7 +204,8 @@ def add_light(
 ) -> dict:
     """Add a light at a woxel position. Returns the new element id.
 
-    color: '#rrggbb' (default warm). energy: brightness. range: radius scale.
+    color: '#rrggbb' (default warm). energy: brightness.
+    range: dimensionless light-texture scale, typically 1-3, NOT world pixels.
     asset: optional Lights gradient/cookie texture path.
     """
     params = {"color": color, "energy": energy, "range": range, "shadows": shadows, "asset": asset}

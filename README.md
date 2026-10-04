@@ -143,6 +143,17 @@ Lighting uses Dungeondraft's 2D falloff textures and wall occlusion. It supports
 plausible local light and shadows, but is not a 3D ray tracer or a strict
 inverse-square physical renderer.
 
+Light `range` is a dimensionless texture scale (usually 1-3), not a radius in
+world pixels. Keep lights attached to visible lamps/fires. Object placement also
+needs an explicit draw layer above any raised floor; use `set_element_layer`
+and inspect the exported image. Spatial validation alone cannot detect objects
+hidden by floors or an oversized light.
+
+0.3.1 fixes alpha-color channel order on Godot 3: MCP `#rrggbbaa` inputs are
+sent as explicit components, and public color results use the same notation.
+Native inspection and saved-map colors retain Godot's ARGB format. This patch
+passed 31 offline tests and live color-channel checks during map rearrangement.
+
 Restart/reconnect the MCP server after updating Python code to refresh its tool
 list, and reload the mod in Dungeondraft. Handles expire on mod/map reload. The
 bridge shares its socket through the scene root and transfers ownership to the

@@ -30,6 +30,19 @@ blindly.
 - **Look at your work**: `screenshot` (current view) and the camera tools
   (`set_camera`, `focus_element`, `fit_elements`) return/aim the view so you can
   inspect what you built and iterate. Use them.
+- Geometry checks do not check draw order: a floor at z=100 can hide a new
+  object at z=0. Explicitly set furniture above its floor with
+  `set_element_layer` (for example 150 when that layer exists); put tabletop
+  decorations above the table. Inspect the export, not just returned IDs.
+- Light `range` is a dimensionless texture scale, **not world pixels**. Start
+  around 1-3, attach every light to a lamp/fire, and inspect shadows in a dusk
+  export. Passing 256 or 600 creates a vastly oversized light.
+- Save and reopen the result, then reapply spatial regions, audit every floor,
+  and compare rendered results. Check terrain texture slots, draw layers and
+  lighting as well as element counts; geometry success alone is insufficient.
+- `open_map` begins asynchronous native loading. Seeing the expected number of
+  floors alone does not prove loading is finished. Wait for matching objects
+  and stable scene state, then verify the actual floor ID before editing/export.
 - The bridge keeps its **own** `undo` / `redo` stacks (independent of DD's
   Ctrl+Z). `delete_element` is **not** undoable.
 

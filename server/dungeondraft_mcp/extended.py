@@ -162,7 +162,12 @@ def register(mcp, bridge):
 
     @mcp.tool()
     def open_map(path: str) -> dict:
-        """Open an existing map. Save the current map first; this replaces the open document."""
+        """Begin opening an existing map, replacing the current document.
+
+        Save the current map first. Native loading is asynchronous: wait for
+        the expected objects/floors to load and confirm the current floor ID
+        before following this call with edits, floor switches or exports.
+        """
         p = Path(path).expanduser().resolve(strict=True)
         return bridge.request('open_document', path=p.as_posix())
 
@@ -252,7 +257,11 @@ def register(mcp, bridge):
                      range: float | None = None, shadows: bool | None = None,
                      enabled: bool | None = None, rotation: float | None = None,
                      asset: str | None = None) -> dict:
-        """Edit an existing light's color, brightness, radius, texture, shadows or enabled state."""
+        """Edit a light's color, brightness, texture scale, shadows or enabled state.
+
+        range is a dimensionless texture scale (usually 1-3), NOT a radius in
+        world pixels. Its visible extent depends on the chosen Lights texture.
+        """
         if energy is not None and energy < 0 or range is not None and range <= 0: raise ValueError('Invalid brightness or radius')
         return bridge.request('modify_light', **{k:v for k,v in locals().items() if v is not None and k != 'bridge'})
 

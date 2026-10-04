@@ -7,6 +7,7 @@ object, and reads one newline-delimited JSON object back. See PROTOCOL.md.
 from __future__ import annotations
 
 import json
+import re
 import socket
 import threading
 
@@ -63,7 +64,15 @@ class BridgeClient:
             return scene, report
 
     def _request(self, cmd: str, **params) -> dict:
-        payload = {"cmd": cmd, **params}
+        # Godot 3 parses eight-digit HTML strings as AARRGGBB. The MCP API
+        # documents RRGGBBAA; use explicit components on the wire so alpha
+        # cannot become red and blue cannot become transparency.
+        wire_params = {}
+        for key, value in params.items():
+            if (key == 'ambient' or key.endswith('color')) and isinstance(value, str) and re.fullmatch(r'#[0-9a-fA-F]{8}', value):
+                value = [int(value[i:i+2], 16)/255 for i in (1, 3, 5, 7)]
+            wire_params[key] = value
+        payload = {"cmd": cmd, **wire_params}
         data = (json.dumps(payload) + "\n").encode("utf-8")
 
         try:
@@ -90,4 +99,11 @@ class BridgeClient:
         resp = json.loads(line.decode("utf-8"))
         if not resp.get("ok"):
             raise BridgeError(resp.get("error", "unknown bridge error"))
-        return resp.get("result", {})
+        result = resp.get("result", {})
+        # Public color fields use the same RGBA notation as their inputs.
+        # Leave native inspection/serialization dictionaries in Godot format.
+        if not cmd.startswith('native_') and isinstance(result, dict):
+            for key, value in result.items():
+                if key.endswith('color') and isinstance(value, str) and re.fullmatch(r'#[0-9a-fA-F]{8}', value):
+                    result[key] = '#' + value[3:] + value[1:3]
+        return result
